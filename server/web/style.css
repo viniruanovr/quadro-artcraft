@@ -242,3 +242,4 @@ kbd { font: 11px/1 "Segoe UI", system-ui, sans-serif; background: var(--painel2)
 .aviso.pergunta { border-color: var(--rosa); display: flex; flex-direction: column; gap: 8px; }
 .aviso.pergunta .acoes { display: flex; gap: 6px; justify-content: flex-end; }
 .estado button { background: var(--painel2); border: 1px solid var(--borda); border-radius: 6px; padding: 1px 7px; cursor: pointer; margin-left: 4px; }
+.rodape button.on { background: rgba(110,231,183,.2); border-color: #6ee7b7; }

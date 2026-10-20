@@ -1,6 +1,6 @@
 {
-  "versao": "2.4.0",
+  "versao": "2.5.0",
   "arquivo": "quadro-bundle.js",
-  "sha256": "63b54ede40190ff551e7208da4f20d8a35b69520dfd2b743aa7adad74f3bc389",
-  "notas": "Agora o quadro mora no GitHub e se atualiza sozinho"
+  "sha256": "3b08aa011590822f20f087aff8c2bae8642052bbf7e58d8c768be31ebfa7c420",
+  "notas": "Ícone próprio e atalho na Área de Trabalho. Vídeo base (trecho da timeline) + PNGs numerados viram um vídeo novo, que volta sozinho para o nó. Números nos fios. Dezenas de correções: projeto não se perde ao salvar, desfazer não derruba geração em andamento, vigia de download mais seguro, proteção contra atualização ruim, atalhos e janela de configuração mais confiáveis."
 }

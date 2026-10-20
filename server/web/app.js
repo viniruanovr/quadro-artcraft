@@ -81,6 +81,7 @@ async function carregarDoc() {
       // só pergunta quando chega uma versão nova (não quando ele navega entre versões)
       const antes = est.doc && est.doc.nome === d.nome ? new Map(est.doc.nos.filter((n) => n.tipo === "gerar").map((n) => [n.id, n.versoes.length])) : null;
       est.doc = d;
+      for (const id of [...est.sel]) if (!acharNo(id) && !d.ligacoes.some((l) => l.id === id)) est.sel.delete(id);
       if (antes) for (const n of d.nos) if (n.tipo === "gerar" && n.atual && antes.has(n.id) && n.versoes.length > antes.get(n.id) && n.estado === "pronto") oferecerTroca(n);
       est.proj = d.nome;
       est.minis = new Set(d.miniaturas || []);
@@ -175,10 +176,10 @@ function htmlNo(no) {
   }
   if (no.tipo === "midia") {
     return `<div class="porta saida" title="Puxe até um nó Gerar (ou solte no vazio para criar um)"></div>
-      <div class="cab"><span class="tag ${tipoMidia === "video" ? "video" : ""}">${tipoMidia === "video" ? "VÍDEO" : "IMAGEM"}</span><input class="titulo" data-campo="titulo" value="${esc(no.titulo)}" placeholder="ex.: Ana (personagem)"><button class="x" data-acao="remover" title="Apagar">×</button></div>
+      <div class="cab"><span class="tag ${tipoMidia === "video" || no.trecho ? "video" : ""}">${tipoMidia === "video" || no.trecho ? "VÍDEO BASE" : "IMAGEM"}</span><input class="titulo" data-campo="titulo" value="${esc(no.titulo)}" placeholder="ex.: Ana (personagem)"><button class="x" data-acao="remover" title="Apagar">×</button></div>
       ${htmlPrevia(m, no)}
       <div class="rodape"><span class="nome" title="${esc(m ? m.arquivo : "")}">${esc(m ? m.arquivo : "")}</span>
-        <button data-acao="timeline" title="Colocar na timeline do FilmCraft, no playhead">TL</button><button data-acao="enviar-filmcraft" title="Importar no FilmCraft">FC</button><button data-acao="enviar-effectcraft" title="Importar no EffectCraft">EC</button></div>`;
+        ${no.fc ? `<button data-acao="trecho" class="${no.trecho ? "on" : ""}" title="${no.trecho ? "Vai como VÍDEO base na geração (clique para mandar só o quadro parado)" : "Vai só como imagem. Clique para mandar o vídeo do clipe como base"}">🎬</button>` : ""}<button data-acao="timeline" title="Colocar na timeline do FilmCraft, no playhead">TL</button><button data-acao="enviar-filmcraft" title="Importar no FilmCraft">FC</button><button data-acao="enviar-effectcraft" title="Importar no EffectCraft">EC</button></div>`;
   }
   const video = no.saida === "video";
   const n = no.versoes.length;
@@ -261,6 +262,18 @@ function desenharFios() {
   const rotulos = $("#camada-rotulos");
   const vivos = new Set();
   const ids = new Set(nosDaCena().map((n) => n.id));
+  // Número de cada referência, na mesma ordem em que o prompt as cita ("imagem 2", "vídeo 1").
+  const numeros = {};
+  const contagem = {};
+  for (const l of est.doc.ligacoes) {
+    const de = acharNo(l.de);
+    if (!de) continue;
+    const m = midiaDe(de);
+    const tipo = de.trecho && de.fc ? "video" : m && m.tipo;
+    if (tipo !== "imagem" && tipo !== "video") continue;
+    const c = contagem[l.para] || (contagem[l.para] = { imagem: 0, video: 0 });
+    numeros[l.id] = `${tipo === "video" ? "🎬 vídeo" : "🖼 imagem"} ${++c[tipo]}`;
+  }
   for (const l of est.doc.ligacoes) {
     if (!ids.has(l.de) || !ids.has(l.para)) continue;
     const de = acharNo(l.de), para = acharNo(l.para);
@@ -284,7 +297,8 @@ function desenharFios() {
     r.style.top = `${pm.y}px`;
     if (est.editandoRotulo === l.id) continue;
     r.className = `rotulo ${tipo}${l.texto ? "" : " vazio"}${est.sel.has(l.id) ? " sel" : ""}`;
-    r.textContent = l.texto || "＋ o que gerar?";
+    const num = numeros[l.id];
+    r.textContent = (num ? `${num} · ` : "") + (l.texto || (num ? "＋ instrução" : "＋ o que gerar?"));
     r.title = "Clique para escrever o que gerar com esta ligação";
   }
   for (const r of [...rotulos.children]) if (!vivos.has(r.dataset.fio)) r.remove();
@@ -346,7 +360,10 @@ function centroVista() {
 }
 
 $("#palco").addEventListener("wheel", (e) => {
+  const ta = e.target.closest && e.target.closest("textarea");
+  if (ta && !e.ctrlKey && ta.scrollHeight > ta.clientHeight) return; // rolar o texto do nó, sem zoom
   e.preventDefault();
+  if (e.deltaMode === 1) { e = { ctrlKey: e.ctrlKey, deltaX: e.deltaX * 16, deltaY: e.deltaY * 16, deltaMode: 0, clientX: e.clientX, clientY: e.clientY }; }
   const r = $("#palco").getBoundingClientRect();
   const v = est.vista;
   if (!e.ctrlKey && Math.abs(e.deltaX) > Math.abs(e.deltaY) * 0.8 && e.deltaMode === 0) {
@@ -551,7 +568,12 @@ function campoMudou(el, imediato) {
     if (n) n[campo] = valor;
     postar("/api/ops", { ops: [{ op: "no", id, [campo]: valor }] }).catch((e) => aviso(e.message, true));
   };
+  enviarPendentes.set(k, enviar);
   if (imediato) enviar(); else timersCampo.set(k, setTimeout(enviar, 500));
+}
+const enviarPendentes = new Map();
+function enviarTudoPendente() {
+  for (const [k, t] of timersCampo) { clearTimeout(t); const f = enviarPendentes.get(k); if (f) f(); }
 }
 
 $("#camada-nos").addEventListener("input", (e) => { if (e.target.dataset.campo && e.target.tagName !== "SELECT") campoMudou(e.target, false); });
@@ -577,7 +599,7 @@ $("#camada-nos").addEventListener("click", async (e) => {
       const i = no.versoes.indexOf(no.atual) + (a === "versao-prox" ? 1 : -1);
       if (no.versoes[i]) await ops([{ op: "versao", no: no.id, midia: no.versoes[i] }]);
     } else if (a === "gerar") {
-      for (const t of timersCampo.values()) clearTimeout(t);
+      enviarTudoPendente();
       document.activeElement && document.activeElement.blur();
       await new Promise((r) => setTimeout(r, 50));
       const campos = {};
@@ -593,6 +615,8 @@ $("#camada-nos").addEventListener("click", async (e) => {
       const x = r.resultados && r.resultados[0];
       if (x && x.erro) aviso(x.erro, true);
       await carregarDoc();
+    } else if (a === "trecho") {
+      await ops([{ op: "no", id: no.id, trecho: !no.trecho }]);
     } else if (a === "copiar") {
       await copiarPrompt(no, false);
     } else if (a === "substituir") {
@@ -790,9 +814,11 @@ document.addEventListener("pointerdown", (e) => { if (!e.target.closest("#menu-r
 
 document.addEventListener("keydown", async (e) => {
   if (e.target.closest && e.target.closest("input, textarea, select, dialog")) return;
+  if (!$("#visor").hidden && e.key !== "Escape") return; // visor aberto: os atalhos não valem atrás dele
+  if (e.repeat && !["ArrowLeft", "ArrowRight"].includes(e.key)) return; // segurar a tecla não cria dezenas de nós
   const ctrl = e.ctrlKey || e.metaKey;
   const k = e.key.toLowerCase();
-  if (e.key === "Escape") { $("#visor").hidden = true; fecharMenu(); fecharProjetosFc(); est.sel.clear(); desenharNos(); desenharFios(); return; }
+  if (e.key === "Escape") { fecharVisor(); fecharMenu(); fecharProjetosFc(); est.sel.clear(); desenharNos(); desenharFios(); return; }
   if ((e.key === "Delete" || e.key === "Backspace") && est.sel.size) {
     e.preventDefault();
     const ids = [...est.sel];
@@ -963,8 +989,10 @@ $("#motor").addEventListener("click", () => {
   f.github.value = est.cfg.github || "";
   f.github.disabled = est.cfg.github === null;
   $("#cfg-versao").textContent = `Versão atual: ${est.cfg.versao}.`;
+  d.returnValue = "";
   d.showModal();
 });
+$("#cfg-cancelar").addEventListener("click", () => $("#dlg-config").close("cancelar"));
 $("#dlg-config").addEventListener("close", async () => {
   const d = $("#dlg-config");
   if (d.returnValue !== "salvar") return;
@@ -1002,7 +1030,8 @@ function abrirVisor(m) {
     : `<img src="${urlMidia(m)}" alt="">`) + `<div class="legenda">${esc(legenda)}</div>`;
   v.hidden = false;
 }
-$("#visor").addEventListener("click", (e) => { if (!e.target.closest("video")) { $("#visor").hidden = true; $("#visor .visor-conteudo").innerHTML = ""; } });
+function fecharVisor() { $("#visor").hidden = true; $("#visor .visor-conteudo").innerHTML = ""; }
+$("#visor").addEventListener("click", (e) => { if (!e.target.closest("video")) fecharVisor(); });
 
 // vídeos dos nós tocam ao passar o mouse
 $("#camada-nos").addEventListener("pointerover", (e) => { const v = e.target.closest(".previa video"); if (v) v.play().catch(() => {}); });
@@ -1451,7 +1480,7 @@ function conectarEventos() {
       if (n) { n.progresso = d.progresso; desenharNos(); }
     }
   };
-  es.onerror = () => { es.close(); setTimeout(conectarEventos, 3000); };
+  es.onerror = () => { es.close(); setTimeout(() => { conectarEventos(); carregarDoc(); }, 3000); }; // pega o que mudou durante a queda
 }
 
 (async function iniciar() {
@@ -1473,3 +1502,6 @@ function conectarEventos() {
     document.body.innerHTML = `<p style="padding:40px">Não consegui falar com o quadro: ${esc(e.message)}. Ele roda junto com o Claude Desktop: abra o Claude e recarregue esta página.</p>`;
   }
 })();
+
+// Soltar um arquivo fora do quadro não pode abrir o arquivo no navegador e perder a sessão.
+for (const nome of ["dragover", "drop"]) window.addEventListener(nome, (e) => { if (e.dataTransfer && [...(e.dataTransfer.types || [])].includes("Files")) e.preventDefault(); });

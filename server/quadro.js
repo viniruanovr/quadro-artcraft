@@ -73,19 +73,40 @@ module.exports = function criarQuadro({
   let reiniciar = null;
   const ARQ_CONFIG = path.join(DADOS, "quadro-config.json");
 
+  // Só devolve o padrão se o arquivo não existe. Arquivo ilegível/quebrado é guardado ao lado
+  // (.corrompido-…) e vira erro: assim ele nunca é regravado por cima de um projeto ou de chaves.
   function lerJson(arq, padrao) {
-    try { return JSON.parse(fs.readFileSync(arq, "utf8")); } catch { return padrao; }
+    let texto;
+    try { texto = fs.readFileSync(arq, "utf8"); } catch (e) {
+      if (e.code === "ENOENT") return padrao;
+      throw new Error(`não consegui ler ${arq}: ${e.message}`);
+    }
+    try { return JSON.parse(texto.replace(/^\uFEFF/, "")); } catch {
+      const guardado = `${arq}.corrompido-${Date.now()}`;
+      try { fs.copyFileSync(arq, guardado); } catch {}
+      throw new Error(`${path.basename(arq)} está danificado (cópia em ${guardado})`);
+    }
   }
 
+  const esperaSincrona = (ms) => { try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); } catch {} };
   function gravarJson(arq, obj) {
     fs.mkdirSync(path.dirname(arq), { recursive: true });
     const tmp = `${arq}.${process.pid}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(obj, null, 1));
-    fs.renameSync(tmp, arq);
+    // OneDrive/antivírus às vezes seguram o arquivo por instantes (EPERM/EBUSY no Windows)
+    for (let i = 0; ; i++) {
+      try { fs.renameSync(tmp, arq); return; } catch (e) {
+        if (i >= 5) {
+          try { fs.writeFileSync(arq, fs.readFileSync(tmp)); fs.rmSync(tmp, { force: true }); return; } catch { fs.rmSync(tmp, { force: true }); throw e; }
+        }
+        esperaSincrona(80 * (i + 1));
+      }
+    }
   }
 
   function config() {
-    const c = lerJson(ARQ_CONFIG, {});
+    let c = {};
+    try { c = lerJson(ARQ_CONFIG, {}); } catch (e) { log(e.message); }
     const artcraftKey = c.artcraftKey || lerConfig("ARTCRAFT_API_KEY");
     const falKey = c.falKey || lerConfig("FAL_KEY");
     const motor = c.motor || (artcraftKey ? "artcraft" : falKey ? "fal" : "manual");
@@ -102,7 +123,11 @@ module.exports = function criarQuadro({
   // Projetos e documento do quadro
   // -------------------------------------------------------------------------------------------
 
-  const limparNome = (s) => String(s || "").replace(/[<>:"/\\|?*\x00-\x1f]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80);
+  const limparNome = (s) => {
+    let n = String(s || "").replace(/[<>:"/\\|?*\x00-\x1f]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80).replace(/[. ]+$/, "");
+    if (/^(con|prn|aux|nul|com\d|lpt\d)(\..*)?$/i.test(n)) n = `_${n}`; // nomes reservados do Windows
+    return n;
+  };
   const pastaProjeto = (p) => path.join(RAIZ, p);
   const docs = new Map();
   const timersSalvar = new Map();
@@ -150,7 +175,10 @@ module.exports = function criarQuadro({
     doc.rev++;
     clearTimeout(timersSalvar.get(doc.nome));
     timersSalvar.set(doc.nome, setTimeout(() => {
-      try { gravarJson(path.join(pastaProjeto(doc.nome), "quadro.json"), doc); } catch (e) { log(`quadro: falha ao salvar ${doc.nome}: ${e.message}`); }
+      try { gravarJson(path.join(pastaProjeto(doc.nome), "quadro.json"), doc); } catch (e) {
+        log(`quadro: falha ao salvar ${doc.nome}: ${e.message}; tento de novo em 5 s`);
+        timersSalvar.set(doc.nome, setTimeout(() => salvar(doc), 5000));
+      }
     }, 150));
     avisar(doc.nome, { tipo: "quadro", rev: doc.rev });
   }
@@ -172,13 +200,32 @@ module.exports = function criarQuadro({
     para.push(JSON.stringify({ cenas: doc.cenas, nos: doc.nos, ligacoes: doc.ligacoes }));
     const v = JSON.parse(de.pop());
     const vivos = new Map(doc.nos.filter((n) => n.tipo === "gerar").map((n) => [n.id, n]));
-    for (const n of v.nos) {
+    // nós Gerar que ainda existem mantêm o MESMO objeto: uma geração em andamento escreve nele
+    const GER = ["versoes", "atual", "estado", "job", "progresso", "erro", "envios"];
+    v.nos = v.nos.map((n) => {
       const agora = vivos.get(n.id);
-      if (agora) for (const k of ["versoes", "atual", "estado", "job", "progresso", "erro", "envios"]) n[k] = agora[k];
-    }
+      if (!agora) { if (n.estado === "gerando") { n.estado = n.versoes && n.versoes.length ? "pronto" : "vazio"; delete n.job; delete n.progresso; } return n; }
+      const guardado = Object.fromEntries(GER.map((k) => [k, agora[k]]));
+      for (const k of Object.keys(agora)) delete agora[k];
+      return Object.assign(agora, n, guardado);
+    });
     Object.assign(doc, v);
     salvar(doc);
     return true;
+  }
+
+  // Volta o documento para uma cópia em JSON mantendo os mesmos objetos de nó (uma geração em
+  // andamento guarda o objeto do nó e continua escrevendo nele).
+  function restaurarDoc(doc, copia) {
+    const vivos = new Map(doc.nos.map((n) => [n.id, n]));
+    const v = JSON.parse(copia);
+    v.nos = v.nos.map((n) => {
+      const a = vivos.get(n.id);
+      if (!a) return n;
+      for (const k of Object.keys(a)) delete a[k];
+      return Object.assign(a, n);
+    });
+    Object.assign(doc, v);
   }
 
   function salvarJa() {
@@ -275,7 +322,7 @@ module.exports = function criarQuadro({
   const caminhoMidia = (doc, m) => path.join(pastaProjeto(doc.nome), "midia", m.arquivo);
   const caminhoMini = (doc, id) => path.join(pastaProjeto(doc.nome), "miniaturas", `${id}.jpg`);
   const midiaDoNo = (doc, no) => {
-    const id = no.tipo === "gerar" ? no.atual : no.midia;
+    const id = no.tipo === "gerar" ? no.atual : no.trecho && no.trechoMidia && doc.midias[no.trechoMidia] ? no.trechoMidia : no.midia;
     return id ? doc.midias[id] || null : null;
   };
 
@@ -283,7 +330,7 @@ module.exports = function criarQuadro({
   // Operações (as mesmas para o quadro no navegador e para o Claude)
   // -------------------------------------------------------------------------------------------
 
-  const CAMPOS_NO = ["titulo", "texto", "prompt", "saida", "modelo", "proporcao", "duracao", "motor", "x", "y", "w", "cor"];
+  const CAMPOS_NO = ["titulo", "texto", "prompt", "saida", "modelo", "proporcao", "duracao", "motor", "x", "y", "w", "cor", "trecho"];
 
   function aplicarOps(doc, ops) {
     const refs = {};
@@ -329,8 +376,13 @@ module.exports = function criarQuadro({
           }
           if (op.ref) refs[op.ref] = no.id;
           if (op.cena && op.id) { const c = acharCena(doc, res(op.cena)); if (c) no.cena = c.id; }
-          for (const k of CAMPOS_NO) if (op[k] !== undefined) no[k] = op[k];
-          if (no.saida && !["imagem", "video"].includes(no.saida)) no.saida = no.saida === "vídeo" ? "video" : "imagem";
+          for (const k of CAMPOS_NO) {
+            if (op[k] === undefined) continue;
+            if (["x", "y", "w", "duracao"].includes(k)) { if (Number.isFinite(Number(op[k]))) no[k] = Number(op[k]); }
+            else if (k === "trecho") no[k] = !!op[k];
+            else no[k] = String(op[k]);
+          }
+          if (no.saida) no.saida = String(no.saida).trim().toLowerCase().normalize("NFD").replace(/\p{M}/gu, "") === "video" ? "video" : "imagem";
           if (op.arquivo) {
             const m = importarArquivo(doc, op.arquivo);
             if (no.tipo === "gerar") adicionarVersao(no, m.id); else no.midia = m.id;
@@ -383,7 +435,7 @@ module.exports = function criarQuadro({
         case "mover": {
           for (const it of op.nos || []) {
             const no = acharNo(doc, it.id);
-            if (no) { no.x = Math.round(it.x); no.y = Math.round(it.y); }
+            if (no && Number.isFinite(Number(it.x)) && Number.isFinite(Number(it.y))) { no.x = Math.round(Number(it.x)); no.y = Math.round(Number(it.y)); }
           }
           break;
         }
@@ -465,7 +517,7 @@ module.exports = function criarQuadro({
       const m = midiaDoNo(doc, de);
       const nome = de.titulo || (m ? path.basename(m.arquivo, path.extname(m.arquivo)) : de.id);
       if (m && m.tipo === "imagem") { imagens.push(m.id); rotulos.push(`imagem ${imagens.length} = ${nome}`); }
-      else if (m && m.tipo === "video") { videos.push(m.id); rotulos.push(`vídeo de referência ${videos.length} = ${nome}`); }
+      else if (m && m.tipo === "video") { videos.push(m.id); rotulos.push(`vídeo ${videos.length} (vídeo base: movimento e câmera) = ${nome}`); }
       if (de.tipo === "nota" && de.texto) instrucoes.push(de.texto.trim());
       if (l.texto && l.texto.trim()) instrucoes.push(l.texto.trim());
     }
@@ -489,7 +541,9 @@ module.exports = function criarQuadro({
     if (!r.ok) {
       const msg = (json && (json.error_message || json.error || json.detail || json.message)) || corpo.slice(0, 300);
       const dica = r.status === 401 ? " (chave inválida ou sem acesso à API)" : r.status === 402 ? " (créditos insuficientes)" : "";
-      throw new Error(`${quem} recusou (HTTP ${r.status})${dica}: ${typeof msg === "string" ? msg : JSON.stringify(msg)}`);
+      const erro = new Error(`${quem} recusou (HTTP ${r.status})${dica}: ${typeof msg === "string" ? msg : JSON.stringify(msg)}`);
+      erro.fatal = r.status >= 400 && r.status < 500 && ![408, 425, 429].includes(r.status);
+      throw erro;
     }
     return json || {};
   }
@@ -524,9 +578,14 @@ module.exports = function criarQuadro({
         const prop = PROPORCAO_ARTCRAFT[no.proporcao];
         if (prop) corpo.aspect_ratio = prop;
         if (video) {
-          if (tokensImg.length) corpo.start_frame_image_media_token = tokensImg[0];
-          if (tokensImg.length > 1) corpo.reference_image_media_tokens = tokensImg.slice(1);
-          if (tokensVid.length) corpo.reference_video_media_tokens = tokensVid;
+          // Com vídeo base, todas as imagens entram como referência (exemplo 3 da API: imagens + vídeo).
+          if (tokensVid.length) {
+            corpo.reference_video_media_tokens = tokensVid;
+            if (tokensImg.length) corpo.reference_image_media_tokens = tokensImg;
+          } else {
+            if (tokensImg.length) corpo.start_frame_image_media_token = tokensImg[0];
+            if (tokensImg.length > 1) corpo.reference_image_media_tokens = tokensImg.slice(1);
+          }
           corpo.duration_seconds = Number(no.duracao) || 5;
           corpo.video_batch_count = 1;
           corpo.generate_audio = !!no.audio;
@@ -572,8 +631,9 @@ module.exports = function criarQuadro({
       },
       async iniciar(doc, no, cfg) {
         if (!cfg.falKey) throw new Error("falta a chave da fal.ai (⚙ no quadro)");
-        const { prompt, imagens } = montarPrompt(doc, no);
+        const { prompt, imagens, videos } = montarPrompt(doc, no);
         const video = no.saida === "video";
+        if (video && videos.length) throw new Error("a fal.ai não aceita vídeo de referência; troque o motor para ArtCraft em ⚙ (ou tire o vídeo base do fio)");
         let modelo = no.modelo || MODELOS.fal[video ? "video" : "imagem"][0];
         const urls = imagens.map((id) => this.dataUri(doc, doc.midias[id]));
         const corpo = { prompt };
@@ -611,6 +671,40 @@ module.exports = function criarQuadro({
     },
   };
 
+  // Nós vindos da timeline com "trecho" ligado mandam o vídeo do clipe (e não só o quadro parado)
+  // como vídeo base: o FilmCraft exporta o trecho em mp4 pequeno, ou usa o arquivo original.
+  const MAX_TRECHO = 15;
+  async function prepararTrechos(doc, gerarNo) {
+    for (const { de } of entradas(doc, gerarNo)) {
+      if (!de.trecho || !de.fc) continue;
+      await exigirFc();
+      const nome = `trecho ${de.fc.clip} ${tc(de.fc.ini).replace(":", "m")}s`.replace(/[^\w. -]/g, "_");
+      const saida = path.join(pastaProjeto(doc.nome), "midia", `${nome}.mp4`);
+      fs.mkdirSync(path.dirname(saida), { recursive: true });
+      fs.rmSync(saida, { force: true });
+      let arq = null;
+      try {
+        await comando("filmcraft", "file.exportMedia", { path: saida, format: "mp4", range: "custom", startSeconds: de.fc.ini, endSeconds: de.fc.ini + Math.min(de.fc.dur, MAX_TRECHO), scale: 0.5, audio: false, wait: true });
+        if (fs.existsSync(saida) && fs.statSync(saida).size > 0) arq = saida;
+      } catch (e) { log(`exportar trecho: ${e.message}`); }
+      if (!arq) {
+        await atualizarArquivosFc([de.fc.item]).catch(() => {});
+        const orig = arquivosFc.get(de.fc.item);
+        if (orig && EXT_VIDEO.has(path.extname(orig).toLowerCase()) && fs.existsSync(orig)) arq = orig;
+      }
+      if (!arq) throw new Error(`não consegui tirar o vídeo do clipe "${de.titulo}" do FilmCraft; desligue 🎬 no nó ou gere por fora`);
+      let m = de.trechoMidia && doc.midias[de.trechoMidia];
+      if (arq === saida) {
+        if (m && m.arquivo === path.basename(saida)) delete m.artcraft; // arquivo regravado: o envio antigo não vale mais
+        else m = registrarMidia(doc, path.basename(saida), "filmcraft", { trecho: true });
+      } else m = importarArquivo(doc, arq);
+      de.trechoMidia = m.id;
+    }
+    salvar(doc);
+  }
+
+  const semChaves = (msg, cfg = config()) => [cfg.artcraftKey, cfg.falKey].filter((k) => k && k.length > 6).reduce((t, k) => t.split(k).join("***"), String(msg));
+
   const trabalhos = new Map(); // `${proj}:${no}` → Promise
 
   async function gerar(proj, noId) {
@@ -631,12 +725,13 @@ module.exports = function criarQuadro({
     salvar(doc);
     const p = (async () => {
       try {
+        await prepararTrechos(doc, no);
         const info = await motor.iniciar(doc, no, cfg);
         no.job = { ...no.job, ...info };
         salvar(doc);
         await acompanhar(doc, no);
       } catch (e) {
-        no.estado = "erro"; no.erro = e.message; delete no.job;
+        no.estado = "erro"; no.erro = semChaves(e.message, cfg); delete no.job;
         salvar(doc);
       } finally {
         trabalhos.delete(k);
@@ -655,12 +750,17 @@ module.exports = function criarQuadro({
       if (!acharNo(doc, no.id)) return; // nó apagado
       let r;
       try { r = await motor.consultar(no.job, config()); falhasRede = 0; } catch (e) {
-        if (/recusou|falhou|inesperado|sem link/.test(e.message) || ++falhasRede > 5) throw e;
+        if (e.fatal || /falhou na ArtCraft|inesperado|sem link/.test(e.message) || ++falhasRede > 8) throw e;
         continue;
       }
       if (r.fim) {
-        const resp = await fetch(r.url);
-        if (!resp.ok) throw new Error(`não consegui baixar o resultado (HTTP ${resp.status})`);
+        let resp;
+        for (let t = 0; t < 4; t++) { // o link do resultado pode demorar uns segundos para propagar
+          resp = await fetch(r.url).catch(() => null);
+          if (resp && resp.ok) break;
+          await new Promise((ok) => setTimeout(ok, 3000 * (t + 1)));
+        }
+        if (!resp || !resp.ok) throw new Error(`não consegui baixar o resultado (${resp ? `HTTP ${resp.status}` : "sem conexão"}); o link ficou: ${r.url}`);
         const bytes = Buffer.from(await resp.arrayBuffer());
         const tipoHttp = resp.headers.get("content-type") || "";
         let ext = path.extname(new URL(r.url).pathname).toLowerCase();
@@ -694,7 +794,7 @@ module.exports = function criarQuadro({
         if (no.estado !== "gerando") continue;
         if (!no.job || !no.job.token || !MOTORES[no.job.motor]) { no.estado = "erro"; no.erro = "a geração foi interrompida; gere de novo"; salvar(doc); continue; }
         const k = `${doc.nome}:${no.id}`;
-        const p = acompanhar(doc, no).catch((e) => { no.estado = "erro"; no.erro = e.message; delete no.job; salvar(doc); }).finally(() => trabalhos.delete(k));
+        const p = acompanhar(doc, no).catch((e) => { no.estado = "erro"; no.erro = semChaves(e.message); delete no.job; salvar(doc); }).finally(() => trabalhos.delete(k));
         trabalhos.set(k, p);
       }
     }
@@ -798,9 +898,13 @@ module.exports = function criarQuadro({
     if (!(await appAberto("filmcraft"))) throw new Error("o FilmCraft não está aberto com o controle ligado (clique em Abrir FilmCraft)");
   }
 
+  let arquivosFcEm = 0;
   async function atualizarArquivosFc(itens) {
-    if (itens.every((i) => arquivosFc.has(i))) return;
+    // ids de item recomeçam em cada projeto: o mapa só vale por alguns segundos
+    if (Date.now() - arquivosFcEm < 5000 && itens.every((i) => arquivosFc.has(i))) return;
     const lista = await comando("filmcraft", "media.status", {});
+    arquivosFc.clear();
+    arquivosFcEm = Date.now();
     for (const x of Array.isArray(lista) ? lista : []) if (x.path) arquivosFc.set(x.item, x.path);
   }
 
@@ -857,7 +961,7 @@ module.exports = function criarQuadro({
     const q = await comando("filmcraft", "sequence.inspect", {});
     if (!q || !q.video) throw new Error("não há sequência aberta no FilmCraft");
     const { video } = faixasDe(q);
-    let lista = video.flatMap((t, f) => t.clipes.map((c) => ({ ...c, faixa: f })));
+    let lista = video.flatMap((t, f) => (t.oculta ? [] : t.clipes.filter((c) => c.ativo).map((c) => ({ ...c, faixa: f }))));
     if (clips && clips.length) lista = lista.filter((c) => clips.includes(c.clip));
     if (!lista.length) throw new Error("a sequência não tem clipes de vídeo");
     lista.sort((a, b) => a.ini - b.ini || a.faixa - b.faixa);
@@ -871,6 +975,7 @@ module.exports = function criarQuadro({
     const novos = lista.filter((x) => !ja.has(x.clip));
     let x0 = Math.max(40, ...doc.nos.filter((n) => n.cena === c.id && n.fc).map((n) => n.x + 270));
     const criados = [];
+    try {
     for (const cl of novos) {
       const arq = arquivosFc.get(cl.item);
       let m;
@@ -885,10 +990,11 @@ module.exports = function criarQuadro({
       if (typeof x === "number") x += 270;
       const no = acharNo(doc, r.criados[0]);
       no.fc = { clip: cl.clip, item: cl.item, ini: cl.ini, dur: cl.dur, faixa: `V${cl.faixa + 1}` };
+      if (EXT_VIDEO.has(path.extname(arq || "").toLowerCase())) no.trecho = true; // clipe de vídeo: vira vídeo base na geração
       criados.push(no.id);
       x0 += 270;
     }
-    salvar(doc);
+    } finally { salvar(doc); } // mesmo se um quadro falhar, o que já entrou não se perde
     return { cena: c.id, criados, texto: `${criados.length} clipe(s) de "${q.name}" na cena "${c.nome}"${novos.length < lista.length ? ` (${lista.length - novos.length} já estavam)` : ""}` };
   }
 
@@ -936,7 +1042,7 @@ module.exports = function criarQuadro({
       if (v < 0) v = q.video.length - 1;
       if (a < 0) a = q.audio.length - 1;
     }
-    const params = { item, track: `V${v + 1}`, seconds: t };
+    const params = { item, track: `V${v + 1}`, seconds: t, duration: Math.round(dur * TICKS) }; // a mesma duração testada acima
     if (props.audio) params.audioTrack = `A${a + 1}`;
     await comando("filmcraft", "timeline.place", params);
     if (no) {
@@ -1058,10 +1164,11 @@ module.exports = function criarQuadro({
     const { video } = faixasDe(q || {});
     const todos = video.flatMap((t) => t.clipes.map((c) => ({ ...c, faixa: t.nome })));
     // o id do clipe muda se ele foi recortado; aí procura pelo mesmo arquivo no mesmo tempo
-    const atual = todos.find((c) => c.clip === alvo.clip) || todos.find((c) => c.item === alvo.item && Math.abs(c.ini - alvo.ini) < 0.05);
+    const atual = todos.find((c) => c.clip === alvo.clip && c.item === alvo.item) || todos.find((c) => c.item === alvo.item && Math.abs(c.ini - alvo.ini) < 0.05);
     if (!atual) throw new Error("não achei mais esse clipe na sequência aberta (ele foi apagado ou a sequência é outra)");
     const c = doc.cenas.find((x) => x.id === no.cena);
     const item = await itemNoFilmcraft(c ? c.nome : "Quadro", caminhoMidia(doc, m));
+    if (item === undefined) throw new Error("o FilmCraft não importou o arquivo");
     const r = await comando("filmcraft", "clip.replaceFromBin", { clips: [atual.clip], item });
     no.envios = (no.envios || []).filter((e) => e.app !== "filmcraft").concat({ app: "filmcraft", midia: m.id, quando: new Date().toISOString(), clip: atual.clip });
     salvar(doc);
@@ -1116,10 +1223,17 @@ module.exports = function criarQuadro({
     if (!esperas.size) { clearInterval(timerEspera); timerEspera = null; return; }
     const usados = new Set();
     for (const [k, e] of esperas) {
+      try { varrerUma(k, e, usados); } catch (err) { log(`vigia: ${err.message}`); }
+    }
+  }
+
+  const consumidos = new Set(); // arquivos já viraram versão de algum nó (caminho + data)
+  function varrerUma(k, e, usados) {
+    {
       const doc = carregar(e.proj);
       const no = acharNo(doc, e.no);
-      if (!no || no.estado !== "aguardando" || !no.aguardando) { esperas.delete(k); continue; }
-      if (Date.now() - no.aguardando.desde > 3 * 3600000) { no.estado = "erro"; no.erro = "nenhum arquivo novo em 3 h. No ArtCraft, baixe o resultado (ou ligue Settings › Downloads › Auto Download) ou arraste o arquivo para o nó"; delete no.aguardando; esperas.delete(k); salvar(doc); continue; }
+      if (!no || no.estado !== "aguardando" || !no.aguardando) { esperas.delete(k); return; }
+      if (Date.now() - no.aguardando.desde > 3 * 3600000) { no.estado = "erro"; no.erro = "nenhum arquivo novo em 3 h. No ArtCraft, baixe o resultado (ou ligue Settings › Downloads › Auto Download) ou arraste o arquivo para o nó"; delete no.aguardando; esperas.delete(k); salvar(doc); return; }
       const extOk = no.aguardando.saida === "video" ? EXT_VIDEO : EXT_IMAGEM;
       let melhor = null;
       for (const pasta of pastasEspera()) {
@@ -1132,17 +1246,23 @@ module.exports = function criarQuadro({
           let st;
           try { st = fs.statSync(arq); } catch { continue; }
           if (!st.isFile() || st.size === 0 || Math.max(st.mtimeMs, st.birthtimeMs || 0) < no.aguardando.desde) continue;
+          if (consumidos.has(`${arq}|${st.mtimeMs}`)) continue;
           if (!melhor || st.mtimeMs > melhor.t) melhor = { arq, t: st.mtimeMs, tam: st.size };
         }
       }
-      if (!melhor) continue;
-      if (tamanhos.get(melhor.arq) !== melhor.tam) { tamanhos.set(melhor.arq, melhor.tam); continue; }
-      tamanhos.delete(melhor.arq);
+      if (!melhor) return;
+      // só entra depois de 3 varreduras seguidas com o mesmo tamanho e 3 s sem mexer (download terminou)
+      const chave = `${k}|${melhor.arq}`;
+      const visto = tamanhos.get(chave);
+      if (!visto || visto.tam !== melhor.tam) { tamanhos.set(chave, { tam: melhor.tam, n: 1 }); return; }
+      if (++visto.n < 3 || Date.now() - melhor.t < 3000) return;
+      tamanhos.delete(chave);
       usados.add(melhor.arq);
+      consumidos.add(`${melhor.arq}|${melhor.t}`);
       try {
         const c = doc.cenas.find((x) => x.id === no.cena);
         const nomeFinal = `${c ? c.nome : "Quadro"} - ${no.titulo || "resultado"} v${no.versoes.length + 1}${path.extname(melhor.arq).toLowerCase()}`;
-        const m = guardarBytes(doc, nomeFinal, fs.readFileSync(melhor.arq), "gerado", { prompt: montarPrompt(doc, no).prompt, motor: "manual", arquivoOriginal: melhor.arq });
+        const m = guardarBytes(doc, nomeFinal, lerArquivoGrande(melhor.arq), "gerado", { prompt: montarPrompt(doc, no).prompt, motor: "manual", arquivoOriginal: melhor.arq });
         adicionarVersao(no, m.id);
         delete no.aguardando;
         esperas.delete(k);
@@ -1150,6 +1270,12 @@ module.exports = function criarQuadro({
         log(`quadro: ${path.basename(melhor.arq)} virou a versão nova de ${no.id}`);
       } catch (err) { no.estado = "erro"; no.erro = err.message; delete no.aguardando; esperas.delete(k); salvar(doc); }
     }
+  }
+
+  function lerArquivoGrande(arq) {
+    const tam = fs.statSync(arq).size;
+    if (tam > 1.5 * 1024 ** 3) throw new Error(`${path.basename(arq)} é grande demais (${Math.round(tam / 1048576)} MB) para importar de uma vez; arraste um arquivo menor para o nó`);
+    return fs.readFileSync(arq);
   }
 
   function retomarEsperas() {
@@ -1250,10 +1376,17 @@ module.exports = function criarQuadro({
       if (fim >= st.size) fim = st.size - 1;
       if (ini > fim) { res.writeHead(416, { "Content-Range": `bytes */${st.size}` }); return res.end(); }
       res.writeHead(206, { "Content-Type": tipo, "Content-Length": fim - ini + 1, "Content-Range": `bytes ${ini}-${fim}/${st.size}`, "Accept-Ranges": "bytes" });
-      return fs.createReadStream(arq, { start: ini, end: fim }).pipe(res);
+      return enviarStream(res, fs.createReadStream(arq, { start: ini, end: fim }));
     }
     res.writeHead(200, { "Content-Type": tipo, "Content-Length": st.size, "Accept-Ranges": "bytes", "Cache-Control": arq.startsWith(WEB) ? "no-cache" : "private, max-age=3600" });
-    fs.createReadStream(arq).pipe(res);
+    enviarStream(res, fs.createReadStream(arq));
+  }
+
+  // arquivo que some/trava no meio do envio não pode derrubar o programa; seek cancelado fecha o arquivo
+  function enviarStream(res, stream) {
+    stream.on("error", () => res.destroy());
+    res.on("close", () => stream.destroy());
+    stream.pipe(res);
   }
 
   function abrirNoSistema(alvo, selecionar) {
@@ -1265,6 +1398,8 @@ module.exports = function criarQuadro({
     try { const p = spawn(cmd, args, { detached: true, stdio: "ignore", windowsHide: true }); p.on("error", () => {}); p.unref(); } catch {}
   }
 
+  const CSP = "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'";
+
   async function rotear(req, res) {
     const u = new URL(req.url, URL_QUADRO);
     const host = (req.headers.host || "").replace(/:\d+$/, "");
@@ -1275,13 +1410,15 @@ module.exports = function criarQuadro({
     if (req.method === "GET") {
       const estatico = rota === "/" ? "index.html" : /^\/(index\.html|app\.js|style\.css|icone\.svg)$/.test(rota) ? rota.slice(1) : null;
       if (estatico && WEB_EMBUTIDO) {
-        res.writeHead(200, { "Content-Type": MIME[path.extname(estatico)], "Cache-Control": "no-cache" });
+        res.writeHead(200, { "Content-Type": MIME[path.extname(estatico)], "Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff", ...(estatico === "index.html" ? { "Content-Security-Policy": CSP } : {}) });
         return res.end(WEB_EMBUTIDO[estatico]);
       }
       if (estatico) return servirArquivo(req, res, path.join(WEB, estatico));
       if (rota.startsWith("/midia/")) {
         const doc = carregar(proj);
-        const m = doc.midias[decodeURIComponent(rota.slice(7))];
+        let idm = "";
+        try { idm = decodeURIComponent(rota.slice(7)); } catch {}
+        const m = Object.hasOwn(doc.midias, idm) ? doc.midias[idm] : null;
         if (!m) { res.writeHead(404); return res.end(); }
         return servirArquivo(req, res, caminhoMidia(doc, m));
       }
@@ -1345,6 +1482,9 @@ module.exports = function criarQuadro({
     // Pedidos que mudam algo precisam deste cabeçalho: um site de fora não consegue mandá-lo sem
     // permissão (CORS), então só o próprio quadro e o conector conseguem.
     if (req.headers["x-quadro"] !== "1") { res.writeHead(403); return res.end(); }
+    const origem = req.headers.origin; // páginas de outros sites não mandam no quadro
+    if (origem && origem !== "null" && !/^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(origem)) { res.writeHead(403); return res.end(); }
+    if (req.headers["sec-fetch-site"] && !["same-origin", "none"].includes(req.headers["sec-fetch-site"])) { res.writeHead(403); return res.end(); }
 
     try {
       if (rota === "/api/upload") {
@@ -1384,7 +1524,7 @@ module.exports = function criarQuadro({
           salvar(doc);
           return json(res, 200, { ok: true, ...r, rev: doc.rev });
         } catch (e) {
-          docs.set(doc.nome, Object.assign(doc, JSON.parse(copia))); // desfaz o lote inteiro
+          restaurarDoc(doc, copia); // desfaz o lote inteiro
           if (!corpo.semHistorico) hist(doc).antes.pop();
           return json(res, 400, { erro: e.message });
         }
@@ -1511,8 +1651,10 @@ module.exports = function criarQuadro({
     await garantirServidor();
     const u = `${URL_QUADRO}${rota}${rota.includes("?") ? "&" : "?"}p=${encodeURIComponent(proj || "")}`;
     const r = await fetch(u, metodo === "GET" ? {} : { method: metodo, headers: { "Content-Type": "application/json", "X-Quadro": "1" }, body: JSON.stringify(corpo || {}) });
-    const j = await r.json();
-    if (!r.ok) throw new Error(j.erro || `HTTP ${r.status}`);
+    const t = await r.text();
+    let j = {};
+    try { j = JSON.parse(t); } catch {}
+    if (!r.ok) throw new Error(j.erro || `HTTP ${r.status}${t ? "" : " (o quadro que está aberto é de uma versão antiga: feche-o e abra de novo)"}`);
     return j;
   }
 
@@ -1609,7 +1751,7 @@ module.exports = function criarQuadro({
         required: ["acao"],
         additionalProperties: false,
       },
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     },
   ];
 

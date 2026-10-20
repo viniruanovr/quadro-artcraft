@@ -39,6 +39,7 @@ let index = fs.readFileSync(path.join(SRV, "index.js"), "utf8").replace(/^#!.*\n
 index = index.replace('require("./quadro")', "__quadroModulo()").replace('require("./atualizar")', "__atualizarModulo");
 const pacote = `"use strict";
 globalThis.__QUADRO_WEB = ${JSON.stringify(web)};
+globalThis.__QUADRO_ICO = "${fs.readFileSync(path.join(RAIZ, "assets", "icone.ico")).toString("base64")}";
 function __quadroModulo() { return ${modulo("quadro.js")}; }
 const __atualizarModulo = ${modulo("atualizar.js")};
 ${index}
@@ -60,6 +61,15 @@ fs.copyFileSync(path.join(RAIZ, "docs", "GUIA.md"), path.join(DIST, "LEIA-ME.md"
 rodar("zip", ["-qr", mcpb, "manifest.json", "server", "skill"], { cwd: RAIZ });
 rodar("zip", ["-qj", mcpb, path.join(DIST, "LEIA-ME.md")]);
 
+// Troca o ícone do node.exe pelo do Quadro e põe nome/versão nas propriedades do arquivo
+// (scripts/icone.mjs). Roda depois do postject (o postject recusa o PE regravado pelo resedit).
+function trocarIcone(exe, versao) {
+  const ferr = path.join(DIST, "ferramentas");
+  fs.mkdirSync(ferr, { recursive: true });
+  if (!fs.existsSync(path.join(ferr, "node_modules", "resedit"))) rodar("npm", ["install", "--no-save", "--no-audit", "--no-fund", "--prefix", ferr, "resedit@3.1.0"]);
+  rodar(process.execPath, [path.join(__dirname, "icone.mjs"), exe, versao, path.join(RAIZ, "assets", "icone.ico"), path.join(ferr, "node_modules", "resedit", "dist", "index.js")]);
+}
+
 // 5. Programa Windows: Node oficial + pacote injetado (Node SEA)
 if (args.includes("--exe")) {
   const nodeWin = path.join(DIST, `node-${process.version}-win.exe`);
@@ -77,6 +87,7 @@ if (args.includes("--exe")) {
   const exe = path.join(DIST, "Quadro ArtCraft.exe");
   fs.copyFileSync(nodeWin, exe);
   rodar("npx", ["-y", "postject@1.0.0-alpha.6", exe, "NODE_SEA_BLOB", blob, "--sentinel-fuse", "NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2"]);
+  trocarIcone(exe, VERSAO);
   // a assinatura da Node.js Foundation deixa de valer depois da injeção: tira a referência a ela
   const f = fs.readFileSync(exe);
   const pe = f.readUInt32LE(0x3c);

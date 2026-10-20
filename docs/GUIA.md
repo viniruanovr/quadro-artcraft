@@ -8,6 +8,13 @@ Esta versão substitui as anteriores. **A partir da 2.2 o programa e a extensão
 - Os botões **FC** e **EC** (ou "Cena → FilmCraft") importam o resultado no FilmCraft ou no EffectCraft, num bin/pasta com o nome da cena ("Cena 4").
 - O Claude enxerga e edita o mesmo quadro. Dá para pedir "melhora os prompts da cena 4", "gera o plano 2" ou "manda a cena 4 pro FilmCraft".
 
+## Novo na 2.5: vídeo base + PNGs, ícone próprio
+
+- **Vídeo base + imagens → vídeo novo, sozinho.** Traga o clipe da timeline (Sequência → cena, ou arraste da timeline), ligue-o e os PNGs num nó **Gerar vídeo** e escreva o que quer. O botão 🎬 no clipe decide se vai o **vídeo do trecho** (padrão para clipes de vídeo: o FilmCraft exporta o trecho, até 15 s) ou só o quadro parado. Com a chave da ArtCraft, o resultado volta sozinho para o nó; use ⇄ para trocar o clipe na timeline.
+- **Números nos fios**: cada ligação mostra "imagem 1", "imagem 2", "vídeo 1", a mesma ordem em que o prompt cita as referências.
+- **Ícone**: o programa tem ícone próprio e cria o atalho "Quadro ArtCraft" na Área de Trabalho na primeira abertura.
+- Vídeo base só funciona com o motor ArtCraft (a fal.ai não aceita vídeo de referência).
+
 ## Novo na 2.3
 
 - **Modo Manual sem arrastar:** ao clicar em Gerar, o quadro copia o prompt, abre a pasta das referências e fica esperando. Gere no ArtCraft: com **Settings › Downloads › Auto Download** ligado no ArtCraft, o resultado já é salvo sozinho e entra no nó como versão nova. Sem isso, clique em baixar no ArtCraft. O quadro olha a pasta de download escolhida no ArtCraft, Downloads, Documentos, Área de Trabalho, Vídeos e Imagens (inclusive no OneDrive).

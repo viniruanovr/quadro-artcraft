@@ -15,7 +15,7 @@ const net = require("node:net");
 const os = require("node:os");
 const path = require("node:path");
 
-const VERSAO = "2.4.0";
+const VERSAO = "2.5.0";
 const WINDOWS = process.platform === "win32";
 const atualizar = require("./atualizar");
 
@@ -257,16 +257,25 @@ class SessaoApp {
       const proc = spawn(inst.cli, args, { env: envDoApp(this.id), windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
       this.proc = proc;
       proc.stdout.setEncoding("utf8");
-      proc.stdout.on("data", (d) => this.receber(d));
+      proc.stdin.on("error", () => {}); // app fechado no meio de uma chamada (EPIPE)
+      proc.stdout.on("data", (d) => { if (this.proc === proc) this.receber(d); });
       proc.stderr.setEncoding("utf8");
       proc.stderr.on("data", (d) => { this.stderr = (this.stderr + d).slice(-4000); });
-      proc.on("error", (e) => this.encerrou(`não foi possível iniciar: ${e.message}`));
-      proc.on("exit", (code) => this.encerrou(`o servidor do app terminou (código ${code})`));
-      const init = await this.pedir("initialize", {
-        protocolVersion: "2025-06-18",
-        capabilities: {},
-        clientInfo: { name: "artcraft-claude", version: VERSAO },
-      }, 30000);
+      proc.on("error", (e) => { if (this.proc === proc) this.encerrou(`não foi possível iniciar: ${e.message}`); });
+      proc.on("exit", (code) => { if (this.proc === proc) this.encerrou(`o servidor do app terminou (código ${code})`); });
+      let init;
+      try {
+        init = await this.pedir("initialize", {
+          protocolVersion: "2025-06-18",
+          capabilities: {},
+          clientInfo: { name: "artcraft-claude", version: VERSAO },
+        }, 30000);
+      } catch (e) {
+        // não deixa um processo meio vivo para trás: a próxima tentativa começa limpa
+        if (this.proc === proc) this.proc = null;
+        try { proc.kill(); } catch {}
+        throw e;
+      }
       this.notificar("notifications/initialized", {});
       this.instrucoes = init && init.instructions;
       return this;
@@ -653,6 +662,7 @@ function erro(id, code, message) {
 }
 
 async function tratar(msg) {
+  if (!msg || typeof msg !== "object" || Array.isArray(msg)) return erro(null, -32600, "requisição inválida");
   const { id, method, params } = msg;
   const ehPedido = id !== undefined && id !== null;
   try {
@@ -708,8 +718,13 @@ function principal() {
   });
   quadro.iniciar().catch((e) => log(`quadro: ${e.message}`));
   atualizar.acompanhar(VERSAO, log);
+  setTimeout(atualizar.marcarBom, 20000).unref(); // ficou de pé: o pacote baixado é bom
   log(`ArtCraft para Claude ${VERSAO} pronto`);
 }
+
+// Um erro solto numa chamada não pode derrubar o conector inteiro (e levar o Claude a perder as ferramentas).
+process.on("uncaughtException", (e) => process.stderr.write(`[artcraft] erro: ${e && e.stack || e}\n`));
+process.on("unhandledRejection", (e) => process.stderr.write(`[artcraft] erro: ${e && e.stack || e}\n`));
 
 // `node index.js --quadro`: só o quadro, sem o Claude (útil para abrir o quadro direto).
 if (ehEntrada) {
@@ -717,6 +732,28 @@ if (ehEntrada) {
   try { ehExe = require("node:sea").isSea(); } catch {}
   if (ehExe || process.argv.includes("--quadro")) programaQuadro(ehExe);
   else principal();
+}
+
+// Atalho "Quadro ArtCraft" na Área de Trabalho, com o ícone do programa. Criado na primeira
+// abertura de cada local do .exe; se a pessoa apagar o atalho depois, não é recriado.
+function criarAtalho() {
+  if (!WINDOWS) return;
+  const marca = path.join(atualizar.PASTA, "atalho.json");
+  try { if (JSON.parse(fs.readFileSync(marca, "utf8")).alvo === process.execPath) return; } catch {}
+  // o ícone vai junto do pacote, assim o atalho fica certo também depois de uma atualização automática
+  let ico = process.execPath;
+  try {
+    const dados = globalThis.__QUADRO_ICO ? Buffer.from(globalThis.__QUADRO_ICO, "base64") : fs.readFileSync(path.join(__dirname, "..", "assets", "icone.ico"));
+    fs.mkdirSync(atualizar.PASTA, { recursive: true });
+    ico = path.join(atualizar.PASTA, "icone.ico");
+    fs.writeFileSync(ico, dados);
+  } catch {}
+  const ps = `$d=[Environment]::GetFolderPath('Desktop');$s=(New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $d 'Quadro ArtCraft.lnk'));`
+    + `$s.TargetPath=$env:QUADRO_EXE;$s.WorkingDirectory=(Split-Path $env:QUADRO_EXE);$s.IconLocation=$env:QUADRO_ICO;$s.Description='Quadro ArtCraft';$s.Save()`;
+  execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", ps], { env: { ...process.env, QUADRO_EXE: process.execPath, QUADRO_ICO: ico.endsWith(".ico") ? ico : `${ico},0` }, windowsHide: true, timeout: 20000 }, (e) => {
+    if (e) return log(`atalho: ${e.message}`);
+    try { fs.mkdirSync(atualizar.PASTA, { recursive: true }); fs.writeFileSync(marca, JSON.stringify({ alvo: process.execPath })); } catch {}
+  });
 }
 
 // Modo programa: abre o quadro no navegador e fica rodando até fechar a janela.
@@ -736,6 +773,7 @@ function programaQuadro(ehExe) {
     sair(0);
   });
   atualizar.acompanhar(VERSAO, log);
+  setTimeout(atualizar.marcarBom, 20000).unref();
   (reinicio ? esperar(1500) : Promise.resolve()).then(() => quadro.iniciar()).then((estado) => {
     if (estado === "outro") {
       process.stdout.write(`\n  O quadro já está rodando (aberto pelo Claude). Abrindo ${url}\n`);
@@ -744,6 +782,7 @@ function programaQuadro(ehExe) {
     }
     process.stdout.write(`\n  Quadro de Cenas ArtCraft ${VERSAO}\n  Aberto em ${url}\n  Arquivos em ${quadro.RAIZ}\n\n  Deixe esta janela aberta enquanto usa o quadro. Para parar, feche a janela.\n\n`);
     if (!reinicio && (ehExe || process.argv.includes("--abrir"))) abrirNavegador();
+    if (ehExe && !reinicio) criarAtalho();
   }, (e) => {
     process.stdout.write(`\n  Não consegui iniciar o quadro: ${e.message}\n`);
     if (ehExe) setTimeout(() => sair(1), 15000); else sair(1);
