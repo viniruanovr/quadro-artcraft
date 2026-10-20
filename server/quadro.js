@@ -746,6 +746,11 @@ module.exports = function criarQuadro({
     return wf;
   }
 
+  // Receita pronta (Wan 2.2 5B, imagem → vídeo). Os mesmos nós que o ComfyUI gera em Workflow › Export (API);
+  // nomes dos modelos como em Comfy-Org/Wan_2.2_ComfyUI_Repackaged. Cópia em receitas/.
+  const RECEITA_WAN22_5B = {"1":{"class_type":"UNETLoader","inputs":{"unet_name":"wan2.2_ti2v_5B_fp16.safetensors","weight_dtype":"default"},"_meta":{"title":"Modelo Wan 2.2 5B"}},"2":{"class_type":"CLIPLoader","inputs":{"clip_name":"umt5_xxl_fp8_e4m3fn_scaled.safetensors","type":"wan","device":"default"},"_meta":{"title":"Texto"}},"3":{"class_type":"VAELoader","inputs":{"vae_name":"wan2.2_vae.safetensors"},"_meta":{"title":"VAE"}},"4":{"class_type":"ModelSamplingSD3","inputs":{"model":["1",0],"shift":8.0},"_meta":{"title":"Shift"}},"5":{"class_type":"CLIPTextEncode","inputs":{"text":"","clip":["2",0]},"_meta":{"title":"Positive"}},"6":{"class_type":"CLIPTextEncode","inputs":{"text":"blurry, low quality, distorted, deformed, static, watermark, text, subtitles, worst quality, jpeg artifacts","clip":["2",0]},"_meta":{"title":"Negative"}},"7":{"class_type":"LoadImage","inputs":{"image":"example.png"},"_meta":{"title":"Imagem inicial"}},"8":{"class_type":"Wan22ImageToVideoLatent","inputs":{"vae":["3",0],"width":832,"height":480,"length":73,"batch_size":1,"start_image":["7",0]},"_meta":{"title":"Latente de vídeo"}},"9":{"class_type":"KSampler","inputs":{"model":["4",0],"seed":1,"steps":20,"cfg":5.0,"sampler_name":"uni_pc","scheduler":"simple","positive":["5",0],"negative":["6",0],"latent_image":["8",0],"denoise":1.0},"_meta":{"title":"Amostrador"}},"10":{"class_type":"VAEDecode","inputs":{"samples":["9",0],"vae":["3",0]},"_meta":{"title":"Decodificar"}},"11":{"class_type":"CreateVideo","inputs":{"images":["10",0],"fps":24.0},"_meta":{"title":"Criar vídeo"}},"12":{"class_type":"SaveVideo","inputs":{"video":["11",0],"filename_prefix":"video/quadro","format":"mp4","format.codec":"auto"},"_meta":{"title":"Salvar vídeo"}}};
+  const RECEITAS_PRONTAS = { "wan22-5b": RECEITA_WAN22_5B };
+
   const ehLigacao = (v) => Array.isArray(v) && v.length === 2 && typeof v[0] !== "object";
 
   // Procura, a partir de um nó, o nó de texto que alimenta o prompt (sobe pelas ligações).
@@ -784,6 +789,7 @@ module.exports = function criarQuadro({
     const usados = { imagens: Math.min(cargaImg.length, imagens.length), videos: Math.min(cargaVid.length, videos.length) };
     cargaImg.slice(0, usados.imagens).forEach((id, i) => { wf[id].inputs.image = imagens[i]; });
     cargaVid.slice(0, usados.videos).forEach((id, i) => { wf[id].inputs.video = videos[i]; });
+    if (cargaImg.length && !imagens.length) throw new Error("essa receita parte de uma imagem: ligue uma imagem (ou um clipe da timeline) ao nó Gerar");
     // carga que sobrou sem arquivo ligado: avisa em vez de gerar com a imagem de exemplo da receita
     if (cargaImg.length > imagens.length && imagens.length) usados.faltamImagens = cargaImg.length - imagens.length;
     return { wf, usados, deixouDeLado: { imagens: imagens.length - usados.imagens, videos: videos.length - usados.videos } };
@@ -819,6 +825,10 @@ module.exports = function criarQuadro({
     return j.subfolder ? `${j.subfolder}/${j.name}` : j.name;
   }
 
+  function receitaTemVideo(saida) {
+    try { return Object.values(JSON.parse(fs.readFileSync(arqReceita(saida === "video" ? "video" : "imagem"), "utf8"))).some((n) => /LoadVideo/.test(n.class_type)); } catch { return true; }
+  }
+
   MOTORES.comfy = {
     nome: "Local (ComfyUI)",
     async iniciar(doc, no, cfg) {
@@ -830,7 +840,9 @@ module.exports = function criarQuadro({
       }
       const { prompt, imagens, videos } = montarPrompt(doc, no, { simples: true }); // modelos locais não entendem "imagem 1 = …"
       const sobe = async (ids) => { const r = []; for (const id of ids) r.push(await enviarAoComfy(cfg, doc, doc.midias[id])); return r; };
-      const arqImg = await sobe(imagens), arqVid = await sobe(videos);
+      const temCargaVideo = Object.values(wf).some((n) => /LoadVideo/.test(n.class_type));
+      if (!imagens.length && videos.length && !temCargaVideo) throw new Error("essa receita parte de uma imagem e não usa vídeo: no clipe da timeline desligue o 🎬 (assim vai o quadro parado como imagem inicial)");
+      const arqImg = await sobe(imagens), arqVid = temCargaVideo ? await sobe(videos) : [];
       const { wf: pronta, deixouDeLado } = injetarReceita(wf, { prompt, imagens: arqImg, videos: arqVid });
       const r = await comfyPedir(cfg, "/prompt", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: pronta, client_id: "quadro-artcraft" }) });
       const j = await r.json().catch(() => ({}));
@@ -884,7 +896,7 @@ module.exports = function criarQuadro({
     salvar(doc);
     const p = (async () => {
       try {
-        await prepararTrechos(doc, no);
+        if (motorId !== "comfy" || receitaTemVideo(no.saida)) await prepararTrechos(doc, no); // receita só de imagem não usa o vídeo base
         const info = await motor.iniciar(doc, no, cfg);
         no.job = { ...no.job, ...info };
         salvar(doc);
@@ -1756,7 +1768,9 @@ module.exports = function criarQuadro({
         return json(res, 200, { ok: true });
       }
       if (rota === "/api/comfy/receita") {
-        const wf = validarReceita(typeof corpo.json === "string" ? JSON.parse(corpo.json) : corpo.json);
+        const pronta = corpo.padrao && RECEITAS_PRONTAS[corpo.padrao];
+        if (corpo.padrao && !pronta) throw new Error("receita pronta desconhecida");
+        const wf = validarReceita(pronta || (typeof corpo.json === "string" ? JSON.parse(corpo.json) : corpo.json));
         fs.mkdirSync(PASTA_COMFY, { recursive: true });
         fs.writeFileSync(arqReceita(corpo.tipo), JSON.stringify(wf));
         return json(res, 200, { ok: true, nos: Object.keys(wf).length });

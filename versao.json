@@ -1,6 +1,6 @@
 {
-  "versao": "2.6.0",
+  "versao": "2.6.1",
   "arquivo": "quadro-bundle.js",
-  "sha256": "7e46e2cc6973185ca3980da3bae5515d4bd3c47f4d775afd3543cb0aba910741",
-  "notas": "Novo motor Local (ComfyUI): gera foto e vídeo na sua própria placa de vídeo, sem custo por geração. ⚙ mostra se o ComfyUI está ligado e qual é a placa. Receitas de foto e vídeo exportadas do ComfyUI."
+  "sha256": "65c973c12cb5ff7c01abc18b5d6eaf913c839e1dce76024e552b87af158e5c55",
+  "notas": "Receita pronta de vídeo (Wan 2.2 5B) com um clique em ⚙, caderno do Kaggle para gerar vídeo grátis fora do seu PC (docs/KAGGLE.md) e avisos mais claros quando a receita precisa de imagem."
 }

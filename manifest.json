@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "artcraft",
   "display_name": "ArtCraft para Claude",
-  "version": "2.6.0",
+  "version": "2.6.1",
   "description": "Controle os apps ArtCraft com comandos em português e monte cenas num quadro de nós que gera fotos e vídeos e manda para o FilmCraft e o EffectCraft.",
   "long_description": "Liga o Claude a todos os apps ArtCraft instalados no computador. O Claude descobre o que está instalado, abre os apps com o canal de controle ligado e executa as edições que você pedir direto na janela do app, ou em arquivos sem abrir janela. Usa o servidor MCP que cada app ArtCraft já traz (<app>-cli mcp), então funciona com os comandos oficiais de cada programa. Inclui o Quadro de Cenas: um quadro de nós no navegador (localhost:7700) onde você sobe fotos de personagem e cenário, liga com fios, escreve no fio o que gerar e envia o resultado para o FilmCraft e o EffectCraft, organizado por cena. O Claude lê e edita o mesmo quadro.",
   "author": {

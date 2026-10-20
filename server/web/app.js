@@ -1029,6 +1029,14 @@ for (const tipo of ["imagem", "video"]) {
     verificarComfy();
   });
 }
+$("#receita-pronta").addEventListener("click", async () => {
+  try {
+    await postar("/api/comfy/receita", { tipo: "video", padrao: "wan22-5b" });
+    aviso("Receita pronta de vídeo salva (Wan 2.2 5B). Ligue uma imagem ao nó Gerar vídeo.");
+    est.cfg = await pegar("/api/config");
+  } catch (err) { aviso(err.message, true, 10000); }
+  verificarComfy();
+});
 $("#cfg-cancelar").addEventListener("click", () => $("#dlg-config").close("cancelar"));
 $("#dlg-config").addEventListener("close", async () => {
   const d = $("#dlg-config");
