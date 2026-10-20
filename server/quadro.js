@@ -110,12 +110,12 @@ module.exports = function criarQuadro({
     const artcraftKey = c.artcraftKey || lerConfig("ARTCRAFT_API_KEY");
     const falKey = c.falKey || lerConfig("FAL_KEY");
     const motor = c.motor || (artcraftKey ? "artcraft" : falKey ? "fal" : "manual");
-    return { motor, artcraftKey, falKey, ativo: c.ativo || "", comfyUrl: String(c.comfyUrl || "http://127.0.0.1:8188").replace(/\/+$/, "") };
+    return { motor, artcraftKey, falKey, ativo: c.ativo || "", comfyUrl: String(c.comfyUrl || "http://127.0.0.1:8188").replace(/\/+$/, ""), kaggleUser: c.kaggleUser || "", kaggleKey: c.kaggleKey || "" };
   }
 
   function salvarConfig(mudancas) {
     const c = lerJson(ARQ_CONFIG, {});
-    for (const k of ["motor", "artcraftKey", "falKey", "ativo", "comfyUrl"]) if (mudancas[k] !== undefined) c[k] = mudancas[k];
+    for (const k of ["motor", "artcraftKey", "falKey", "ativo", "comfyUrl", "kaggleUser", "kaggleKey"]) if (mudancas[k] !== undefined) c[k] = mudancas[k];
     gravarJson(ARQ_CONFIG, c);
   }
 
@@ -201,10 +201,10 @@ module.exports = function criarQuadro({
     const v = JSON.parse(de.pop());
     const vivos = new Map(doc.nos.filter((n) => n.tipo === "gerar").map((n) => [n.id, n]));
     // nós Gerar que ainda existem mantêm o MESMO objeto: uma geração em andamento escreve nele
-    const GER = ["versoes", "atual", "estado", "job", "progresso", "erro", "envios"];
+    const GER = ["versoes", "atual", "estado", "job", "progresso", "erro", "envios", "aguardando", "fase"];
     v.nos = v.nos.map((n) => {
       const agora = vivos.get(n.id);
-      if (!agora) { if (n.estado === "gerando") { n.estado = n.versoes && n.versoes.length ? "pronto" : "vazio"; delete n.job; delete n.progresso; } return n; }
+      if (!agora) { if (n.estado === "gerando" && !trabalhos.has(`${doc.nome}:${n.id}`)) { n.estado = n.versoes && n.versoes.length ? "pronto" : "vazio"; delete n.job; delete n.progresso; } return n; }
       const guardado = Object.fromEntries(GER.map((k) => [k, agora[k]]));
       for (const k of Object.keys(agora)) delete agora[k];
       return Object.assign(agora, n, guardado);
@@ -695,7 +695,7 @@ module.exports = function criarQuadro({
       if (!arq) throw new Error(`não consegui tirar o vídeo do clipe "${de.titulo}" do FilmCraft; desligue 🎬 no nó ou gere por fora`);
       let m = de.trechoMidia && doc.midias[de.trechoMidia];
       if (arq === saida) {
-        if (m && m.arquivo === path.basename(saida)) delete m.artcraft; // arquivo regravado: o envio antigo não vale mais
+        if (m && m.arquivo === path.basename(saida)) { delete m.artcraft; fs.rmSync(caminhoMini(doc, m.id), { force: true }); } // arquivo regravado: o envio e a miniatura antigos não valem mais
         else m = registrarMidia(doc, path.basename(saida), "filmcraft", { trecho: true });
       } else m = importarArquivo(doc, arq);
       de.trechoMidia = m.id;
@@ -814,50 +814,89 @@ module.exports = function criarQuadro({
     } catch (e) { return { url: cfg.comfyUrl, ligado: false, erro: e.message, receitas }; }
   }
 
-  async function enviarAoComfy(cfg, doc, m) {
-    const fd = new FormData();
-    const ext = path.extname(m.arquivo);
-    fd.append("image", new Blob([fs.readFileSync(caminhoMidia(doc, m))], { type: MIME[ext.toLowerCase()] || "application/octet-stream" }), `quadro_${m.id}${ext}`);
-    fd.append("overwrite", "true");
-    const r = await comfyPedir(cfg, "/upload/image", { method: "POST", body: fd, timeout: 120000 });
-    if (!r.ok) throw new Error(`ComfyUI recusou o envio de ${m.arquivo} (HTTP ${r.status})`);
-    const j = await r.json();
-    return j.subfolder ? `${j.subfolder}/${j.name}` : j.name;
+  function receitaTemVideo(saida) {
+    try { return Object.values(JSON.parse(fs.readFileSync(arqReceita(saida === "video" ? "video" : "imagem"), "utf8"))).some((n) => /LoadVideo/.test(n.class_type)); } catch (e) { return e.code !== "ENOENT"; }
   }
 
-  function receitaTemVideo(saida) {
-    try { return Object.values(JSON.parse(fs.readFileSync(arqReceita(saida === "video" ? "video" : "imagem"), "utf8"))).some((n) => /LoadVideo/.test(n.class_type)); } catch { return true; }
+  // Monta a receita do nó: escolhe a receita, sobe as referências com `subir(nome, bytes, tipo)` (que
+  // devolve o nome a usar na receita) e ajusta tamanho e duração. Serve ao ComfyUI local e à nuvem.
+  async function montarComfy(doc, no, subir) {
+    const video = no.saida === "video";
+    let wf;
+    try { wf = validarReceita(JSON.parse(fs.readFileSync(arqReceita(video ? "video" : "imagem"), "utf8"))); } catch (e) {
+      if (e.code === "ENOENT" && video) wf = RECEITA_WAN22_5B; // sem receita escolhida: usa a pronta, sem pedir nada
+      else if (e.code === "ENOENT") throw new Error("para gerar foto por aqui falta a receita de foto do ComfyUI. Em ⚙ escolha o arquivo exportado do ComfyUI (Workflow › Export (API)), ou use o modo Manual");
+      else throw e;
+    }
+    const { prompt, imagens, videos } = montarPrompt(doc, no, { simples: true }); // modelos locais não entendem "imagem 1 = …"
+    const sobe = async (ids) => {
+      const r = [];
+      for (const id of ids) { const m = doc.midias[id]; const ext = path.extname(m.arquivo); r.push(await subir(`quadro_${m.id}${ext}`, fs.readFileSync(caminhoMidia(doc, m)), MIME[ext.toLowerCase()] || "application/octet-stream")); }
+      return r;
+    };
+    const temCargaVideo = Object.values(wf).some((n) => /LoadVideo/.test(n.class_type));
+    // Receita que parte de uma imagem: o quadro do vídeo base vira a imagem inicial (a cena continua dele)
+    // e as fotos ligadas entram depois, se a receita tiver lugar; o texto do fio diz o que acontece.
+    const arqImg = [];
+    if (videos.length && !temCargaVideo) {
+      // clipe da timeline: o quadro parado em resolução cheia; arquivo de vídeo: a miniatura do início
+      const daTimeline = entradas(doc, no).map(({ de }) => de).find((de) => de.fc && de.midia && doc.midias[de.midia] && doc.midias[de.midia].tipo === "imagem");
+      const mini = caminhoMini(doc, videos[0]);
+      if (daTimeline) { const m = doc.midias[daTimeline.midia]; const ext = path.extname(m.arquivo); arqImg.push(await subir(`quadro_${m.id}${ext}`, fs.readFileSync(caminhoMidia(doc, m)), MIME[ext.toLowerCase()] || "image/png")); }
+      else if (fs.existsSync(mini)) arqImg.push(await subir(`quadro_${videos[0]}_inicio.jpg`, fs.readFileSync(mini), "image/jpeg"));
+      else if (!imagens.length) throw new Error("não consegui ler o primeiro quadro desse vídeo. Ligue também uma foto do primeiro quadro (ou um clipe da timeline) e gere de novo");
+    }
+    const vagas = Object.values(wf).filter((n) => n.class_type === "LoadImage").length;
+    arqImg.push(...(await sobe(imagens.slice(0, Math.max(0, vagas - arqImg.length))))); // só sobe o que a receita usa
+    const arqVid = temCargaVideo ? await sobe(videos) : [];
+    const { wf: pronta, deixouDeLado } = injetarReceita(wf, { prompt, imagens: arqImg, videos: arqVid });
+    deixouDeLado.imagens += Math.max(0, imagens.length + (arqImg.length > imagens.length ? 1 : 0) - arqImg.length);
+    // receita Wan: tamanho e duração vêm do nó (24 quadros/s, múltiplo de 4 + 1, até 5 s)
+    const TAM = { "16:9": [832, 480], "9:16": [480, 832], "1:1": [640, 640], "4:3": [736, 544], "3:4": [544, 736], "21:9": [960, 416] };
+    for (const n of Object.values(pronta)) {
+      if (n.class_type !== "Wan22ImageToVideoLatent") continue;
+      const t = TAM[no.proporcao];
+      if (t) [n.inputs.width, n.inputs.height] = t;
+      const seg = Math.min(5, Math.max(1, Number(no.duracao) || 3));
+      n.inputs.length = Math.round((seg * 24) / 4) * 4 + 1;
+    }
+    const aviso = deixouDeLado.imagens || deixouDeLado.videos ? `a receita só tem lugar para parte das referências: ${deixouDeLado.imagens} imagem(ns) e ${deixouDeLado.videos} vídeo(s) ficaram de fora` : "";
+    if (aviso) log(`comfy: ${aviso}`);
+    return { pronta, prompt, aviso };
   }
 
   MOTORES.comfy = {
     nome: "Local (ComfyUI)",
     async iniciar(doc, no, cfg) {
-      const video = no.saida === "video";
-      let wf;
-      try { wf = validarReceita(JSON.parse(fs.readFileSync(arqReceita(video ? "video" : "imagem"), "utf8"))); } catch (e) {
-        if (e.code === "ENOENT") throw new Error(`falta a receita de ${video ? "vídeo" : "foto"} do ComfyUI. Em ⚙ › Local, escolha o arquivo exportado do ComfyUI (Workflow › Export (API))`);
-        throw e;
-      }
-      const { prompt, imagens, videos } = montarPrompt(doc, no, { simples: true }); // modelos locais não entendem "imagem 1 = …"
-      const sobe = async (ids) => { const r = []; for (const id of ids) r.push(await enviarAoComfy(cfg, doc, doc.midias[id])); return r; };
-      const temCargaVideo = Object.values(wf).some((n) => /LoadVideo/.test(n.class_type));
-      if (!imagens.length && videos.length && !temCargaVideo) throw new Error("essa receita parte de uma imagem e não usa vídeo: no clipe da timeline desligue o 🎬 (assim vai o quadro parado como imagem inicial)");
-      const arqImg = await sobe(imagens), arqVid = temCargaVideo ? await sobe(videos) : [];
-      const { wf: pronta, deixouDeLado } = injetarReceita(wf, { prompt, imagens: arqImg, videos: arqVid });
+      const { pronta, prompt, aviso } = await montarComfy(doc, no, async (nome, bytes, tipo) => {
+        const fd = new FormData();
+        fd.append("image", new Blob([bytes], { type: tipo }), nome);
+        fd.append("overwrite", "true");
+        const r = await comfyPedir(cfg, "/upload/image", { method: "POST", body: fd, timeout: 120000 });
+        if (!r.ok) throw new Error(`ComfyUI recusou o envio de ${nome} (HTTP ${r.status})`);
+        const j = await r.json();
+        return j.subfolder ? `${j.subfolder}/${j.name}` : j.name;
+      });
       const r = await comfyPedir(cfg, "/prompt", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: pronta, client_id: "quadro-artcraft" }) });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) {
         const det = j.node_errors ? Object.values(j.node_errors).map((n) => (n.errors || []).map((e) => e.message).join("; ")).filter(Boolean).join(" | ") : "";
         throw new Error(`ComfyUI recusou a receita: ${(j.error && (j.error.message || j.error)) || `HTTP ${r.status}`}${det ? ` (${det})` : ""}`);
       }
-      const aviso = deixouDeLado.imagens || deixouDeLado.videos ? ` (a receita só tem lugar para parte das referências: ${deixouDeLado.imagens} imagem(ns) e ${deixouDeLado.videos} vídeo(s) ficaram de fora)` : "";
-      if (aviso) log(`comfy:${aviso}`);
-      return { token: j.prompt_id, modelo: "ComfyUI local", prompt, avisoReceita: aviso.trim() };
+      return { token: j.prompt_id, modelo: "ComfyUI local", prompt, avisoReceita: aviso };
     },
     async consultar(job, cfg) {
       const r = await comfyPedir(cfg, `/history/${encodeURIComponent(job.token)}`, { timeout: 15000 });
       const h = (await r.json().catch(() => ({})))[job.token];
-      if (!h) return { fim: false, progresso: 0, fase: "na fila" };
+      if (!h) {
+        const q = await (await comfyPedir(cfg, "/queue", { timeout: 15000 })).json().catch(() => null);
+        const naFila = !q || [...(q.queue_running || []), ...(q.queue_pending || [])].some((x) => Array.isArray(x) && x[1] === job.token);
+        if (naFila) { job.sumido = 0; return { fim: false, progresso: 0, fase: "na fila" }; }
+        if ((job.sumido = (job.sumido || 0) + 1) < 3) return { fim: false, progresso: 0 };
+        const e = new Error("o ComfyUI perdeu este pedido (foi reiniciado?); clique em Gerar de novo");
+        e.fatal = true;
+        throw e;
+      }
       const st = h.status || {};
       if (st.status_str === "error") {
         const msg = (st.messages || []).find((m) => m[0] === "execution_error");
@@ -874,7 +913,261 @@ module.exports = function criarQuadro({
     },
   };
 
-  const semChaves = (msg, cfg = config()) => [cfg.artcraftKey, cfg.falKey].filter((k) => k && k.length > 6).reduce((t, k) => t.split(k).join("***"), String(msg));
+  // -------------------------------------------------------------------------------------------
+  // Nuvem grátis (Kaggle): o quadro liga sozinho uma sessão com GPU no Kaggle do usuário. Lá roda o
+  // ComfyUI fechado (sem endereço aberto na internet): ele busca os pedidos num canal secreto do
+  // ntfy.sh, gera e devolve o arquivo pelo mesmo canal. Desliga sozinho após um tempo sem pedidos.
+  // -------------------------------------------------------------------------------------------
+  const KAGGLE_API = process.env.QUADRO_KAGGLE_API || "https://api.kaggle.com/v1/kernels.KernelsApiService/";
+  const SLUG_KAGGLE = "quadro-gpu";
+  const OCIOSO_MIN = 25;
+  const NTFY = process.env.QUADRO_NTFY || "https://ntfy.sh/";
+
+  function scriptKaggle(topico) {
+    return `# Quadro ArtCraft: ComfyUI com GPU grátis, ligado e desligado pelo próprio quadro.
+# Não abre nenhum endereço: busca os pedidos no canal secreto do quadro e devolve o resultado por lá.
+import os, subprocess, sys, time, json, re, glob, urllib.request
+T = ${JSON.stringify(topico)}
+NTFY = "https://ntfy.sh/"
+OCIOSO_S = ${OCIOSO_MIN} * 60
+LIMITE_S = 11.5 * 3600
+inicio = time.time()
+
+def http(url, dados=None, metodo=None, cab=None, t=60):
+    req = urllib.request.Request(url, data=dados, method=metodo, headers=cab or {})
+    return urllib.request.urlopen(req, timeout=t).read()
+
+def avisar(canal, msg):
+    for _ in range(3):
+        try: http(NTFY + T + "-" + canal, msg.encode(), "POST"); return
+        except Exception as e: print("aviso falhou:", e); time.sleep(5)
+
+avisar("estado", "instalando")
+BASE = "/kaggle/working/ComfyUI" if os.path.isdir("/kaggle/working") else "/tmp/ComfyUI"
+if not os.path.exists(BASE):
+    subprocess.run(["git", "clone", "--depth", "1", "https://github.com/comfyanonymous/ComfyUI", BASE], check=True)
+reqs = [l for l in open(BASE + "/requirements.txt").read().splitlines() if not re.match(r"^(torch|torchvision|torchaudio)\\b", l.strip())]
+open("/tmp/req.txt", "w").write("\\n".join(reqs))
+subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-r", "/tmp/req.txt"], check=True)
+
+avisar("estado", "baixando")
+HF = "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files"
+for sub, nome in [("diffusion_models", "wan2.2_ti2v_5B_fp16.safetensors"), ("text_encoders", "umt5_xxl_fp8_e4m3fn_scaled.safetensors"), ("vae", "wan2.2_vae.safetensors")]:
+    destino = BASE + "/models/" + sub + "/" + nome
+    os.makedirs(os.path.dirname(destino), exist_ok=True)
+    if not (os.path.exists(destino) and os.path.getsize(destino) > 10_000_000):
+        subprocess.run(["wget", "-q", "-c", "-O", destino, HF + "/" + sub + "/" + nome], check=True)
+
+avisar("estado", "ligando")
+comfy = subprocess.Popen([sys.executable, "main.py", "--listen", "127.0.0.1", "--port", "8188"], cwd=BASE, stdout=open("/tmp/comfy.log", "w"), stderr=subprocess.STDOUT)
+def local(rota, dados=None, t=10):
+    return json.loads(http("http://127.0.0.1:8188" + rota, dados, "POST" if dados else None, {"Content-Type": "application/json"} if dados else None, t))
+for _ in range(180):
+    try: local("/system_stats", t=2); break
+    except Exception: time.sleep(2)
+else:
+    print(open("/tmp/comfy.log").read()[-4000:]); avisar("estado", "erro:o ComfyUI não subiu na nuvem"); raise SystemExit(1)
+print("ComfyUI ligado:", [d.get("name") for d in local("/system_stats").get("devices", [])])
+
+def fazer(pedido):
+    pid = pedido["id"]
+    for a in pedido.get("anexos", []):
+        nome = os.path.basename(a["nome"])
+        open(os.path.join(BASE, "input", nome), "wb").write(http(a["url"], t=300))
+    pr = local("/prompt", json.dumps({"prompt": pedido["receita"], "client_id": "quadro-nuvem"}).encode())["prompt_id"]
+    t0 = time.time()
+    while time.time() - t0 < 40 * 60:
+        time.sleep(5)
+        if comfy.poll() is not None: raise RuntimeError("o ComfyUI parou na nuvem")
+        h = local("/history/" + pr).get(pr)
+        if not h: continue
+        st = h.get("status", {})
+        if st.get("status_str") == "error":
+            msg = [m[1] for m in st.get("messages", []) if m[0] == "execution_error"]
+            raise RuntimeError("a geração falhou: " + (msg[0].get("exception_message", "") if msg else "erro no ComfyUI"))
+        if not st.get("completed"): continue
+        arqs = [f for o in h.get("outputs", {}).values() for k in ("videos", "gifs", "images") for f in o.get(k, []) if f.get("type") != "temp"]
+        if not arqs: raise RuntimeError("a receita não salvou nenhum arquivo")
+        f = sorted(arqs, key=lambda f: 0 if re.search(r"\\.(mp4|webm|mov)$", f["filename"]) else 1)[0]
+        caminho = os.path.join(BASE, "output", f.get("subfolder", ""), f["filename"])
+        http(NTFY + T + "-feito", open(caminho, "rb").read(), "PUT", {"Filename": pid + os.path.splitext(caminho)[1], "Message": "ok:" + pid}, 300)
+        return
+    raise RuntimeError("passou de 40 minutos sem terminar")
+
+feitos = set()
+ultimo = time.time(); batida = 0
+while time.time() - inicio < LIMITE_S and time.time() - ultimo < OCIOSO_S:
+    if time.time() - batida > 120:
+        avisar("estado", "pronta"); batida = time.time()
+    try:
+        linhas = http(NTFY + T + "-pedido/json?poll=1&since=40m", t=30).decode().splitlines()
+    except Exception as e:
+        print("busca falhou:", e); time.sleep(15); continue
+    for l in linhas:
+        m = json.loads(l)
+        if m.get("event") != "message" or m["id"] in feitos or not m.get("attachment"): continue
+        feitos.add(m["id"])
+        pid = m.get("message", "")
+        try:
+            fazer(json.loads(http(m["attachment"]["url"])))
+        except Exception as e:
+            print("pedido", pid, "falhou:", e)
+            avisar("feito", "erro:" + pid + ":" + str(e)[:300])
+        ultimo = time.time()
+    time.sleep(8)
+avisar("estado", "desligada")
+print("desligando por falta de uso")
+`;
+  }
+
+  function topicoKaggle() {
+    const c = lerJson(ARQ_CONFIG, {});
+    if (c.kaggleTopico && /^[a-z0-9]{24,}$/.test(c.kaggleTopico)) return c.kaggleTopico;
+    c.kaggleTopico = `quadro${crypto.randomBytes(16).toString("hex")}`;
+    gravarJson(ARQ_CONFIG, c);
+    return c.kaggleTopico;
+  }
+
+  async function kagglePedir(cfg, metodo, corpo) {
+    if (!cfg.kaggleUser || !cfg.kaggleKey) throw new Error("falta ligar sua conta do Kaggle: em ⚙ escolha o arquivo kaggle.json (Kaggle › Settings › API › Create New Token)");
+    const auth = /^KGAT_/.test(cfg.kaggleKey) ? `Bearer ${cfg.kaggleKey}` : `Basic ${Buffer.from(`${cfg.kaggleUser}:${cfg.kaggleKey}`).toString("base64")}`;
+    const r = await fetch(KAGGLE_API + metodo, {
+      method: "POST", headers: { "Content-Type": "application/json", Authorization: auth, "User-Agent": "kaggle-api/v1.7.0" },
+      body: JSON.stringify(corpo), signal: AbortSignal.timeout(60000),
+    }).catch((e) => { throw new Error(`não consegui falar com o Kaggle (${e.cause && e.cause.code ? e.cause.code : e.message})`); });
+    const j = await r.json().catch(() => ({}));
+    if (r.status === 401 || r.status === 403) throw new Error("o Kaggle recusou a chave: em ⚙ escolha de novo o kaggle.json");
+    if (!r.ok || (j.code && j.code >= 400)) { const e = new Error(`Kaggle: ${j.message || j.error || `HTTP ${r.status}`}`); e.status = r.status || j.code; throw e; }
+    if (j.error) throw new Error(`Kaggle: ${j.error}`);
+    return j;
+  }
+
+  async function kaggleSituacao(cfg) {
+    try {
+      const j = await kagglePedir(cfg, "GetKernelSessionStatus", { userName: cfg.kaggleUser, kernelSlug: SLUG_KAGGLE });
+      return { status: String(j.status || "QUEUED"), falha: j.failureMessage || "" };
+    } catch (e) {
+      if (e.status === 404) return { status: "NENHUMA", falha: "" };
+      throw e;
+    }
+  }
+
+  async function kaggleLigar(cfg) {
+    const corpo = {
+      slug: `${cfg.kaggleUser}/${SLUG_KAGGLE}`, newTitle: SLUG_KAGGLE, text: scriptKaggle(topicoKaggle()), language: "python", kernelType: "script",
+      isPrivate: true, enableGpu: true, enableInternet: true, datasetDataSources: [], kernelDataSources: [], competitionDataSources: [], modelDataSources: [], categoryIds: [],
+      machineShape: "NvidiaTeslaT4",
+    };
+    try { return await kagglePedir(cfg, "SaveKernel", corpo); } catch (e) {
+      if (!/machine|shape|accelerator/i.test(e.message)) throw e;
+      delete corpo.machineShape; // conta sem T4: fica com a GPU padrão do Kaggle
+      return kagglePedir(cfg, "SaveKernel", corpo);
+    }
+  }
+
+  // Mensagens de um canal do quadro no ntfy.sh (as mais novas por último).
+  async function canal(nome, desde = "1h") {
+    const r = await fetch(`${NTFY}${topicoKaggle()}-${nome}/json?poll=1&since=${desde}`, { signal: AbortSignal.timeout(20000) }).catch(() => null);
+    if (!r || !r.ok) return null;
+    return (await r.text()).split("\n").map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter((m) => m && m.event === "message");
+  }
+  async function publicarArquivo(nomeCanal, nome, bytes, mensagem) {
+    if (bytes.length > 14 * 1024 * 1024) throw new Error(`${nome} passa de 14 MB, o limite para mandar à nuvem. Use uma versão menor da imagem`);
+    const r = await fetch(`${NTFY}${topicoKaggle()}-${nomeCanal}`, { method: "PUT", body: bytes, headers: { Filename: nome, ...(mensagem ? { Message: mensagem } : {}) }, signal: AbortSignal.timeout(300000) })
+      .catch((e) => { throw new Error(`não consegui mandar ${nome} para a nuvem (${e.message})`); });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.attachment) throw new Error(`não consegui mandar ${nome} para a nuvem (HTTP ${r.status})`);
+    return j.attachment.url;
+  }
+
+  // Estado da GPU pela última batida: "pronta" vale por 5 minutos.
+  async function gpuEstado() {
+    const ms = await canal("estado", "12h");
+    const m = ms && ms[ms.length - 1];
+    if (!m) return { estado: "desligada", quando: 0 };
+    const quando = m.time * 1000;
+    if (m.message === "pronta" && Date.now() - quando > 5 * 60 * 1000) return { estado: "desligada", quando };
+    return { estado: m.message, quando };
+  }
+
+  const FASES_KAGGLE = { instalando: "Ligando a GPU na nuvem (1/3)", baixando: "Baixando o modelo na nuvem (2/3)", ligando: "Abrindo o gerador na nuvem (3/3)" };
+  let gpuLigando = null;
+
+  async function garantirGpu(cfg, fase) {
+    if (gpuLigando) return gpuLigando;
+    gpuLigando = (async () => {
+      const agora = await gpuEstado();
+      if (agora.estado === "pronta") return;
+      fase("Ligando a GPU na nuvem");
+      const desde = Date.now();
+      const sit = await kaggleSituacao(cfg);
+      if (!/RUNNING|QUEUED|NEW_SCRIPT/.test(sit.status)) await kaggleLigar(cfg);
+      const limite = Date.now() + 30 * 60 * 1000;
+      let conferido = Date.now();
+      while (Date.now() < limite) {
+        await new Promise((ok) => setTimeout(ok, 15000));
+        const g = await gpuEstado();
+        if (g.quando >= desde - 60000) {
+          if (g.estado === "pronta") return;
+          if (g.estado.startsWith("erro:")) throw new Error(`a nuvem do Kaggle falhou: ${g.estado.slice(5)}`);
+          if (FASES_KAGGLE[g.estado]) fase(FASES_KAGGLE[g.estado]);
+        }
+        if (Date.now() - conferido > 90000) {
+          conferido = Date.now();
+          const s = await kaggleSituacao(cfg).catch(() => null);
+          if (s && /ERROR|COMPLETE|CANCEL/.test(s.status)) {
+            throw new Error(`a sessão do Kaggle parou${s.falha ? `: ${s.falha}` : ""}. Confira em kaggle.com se o telefone da conta está verificado (é exigido para usar GPU com internet)`);
+          }
+        }
+      }
+      throw new Error("a GPU do Kaggle não ligou em 30 minutos. Veja em kaggle.com › Code › quadro-gpu o que aconteceu");
+    })();
+    try { return await gpuLigando; } finally { gpuLigando = null; }
+  }
+
+  MOTORES.kaggle = {
+    nome: "Nuvem grátis (Kaggle)",
+    async iniciar(doc, no, cfg) {
+      const fase = (texto) => { no.fase = texto; avisar(doc.nome, { tipo: "progresso", no: no.id, progresso: 0, fase: texto }); };
+      await garantirGpu(cfg, fase);
+      fase("Mandando para a nuvem");
+      const anexos = [];
+      const { pronta, prompt, aviso } = await montarComfy(doc, no, async (nome, bytes) => {
+        anexos.push({ nome, url: await publicarArquivo("arq", nome, bytes) });
+        return nome;
+      });
+      const id = `p${crypto.randomBytes(8).toString("hex")}`;
+      await publicarArquivo("pedido", `${id}.json`, Buffer.from(JSON.stringify({ id, receita: pronta, anexos })), id);
+      fase("Gerando na nuvem");
+      return { token: id, inicio: Date.now(), modelo: "Wan 2.2 5B (nuvem Kaggle)", prompt, avisoReceita: aviso };
+    },
+    async consultar(job) {
+      // o ntfy.sh limita as consultas: olha o canal a cada 15 s
+      if (job.olhado && Date.now() - job.olhado < 15000) return { fim: false, progresso: 0 };
+      job.olhado = Date.now();
+      const ms = await canal("feito", "1h");
+      if (!ms) return { fim: false, progresso: 0 };
+      for (const m of ms) {
+        if (m.message === `ok:${job.token}` && m.attachment) return { fim: true, url: m.attachment.url, ext: path.extname(m.attachment.name || ".mp4").toLowerCase() };
+        if (typeof m.message === "string" && m.message.startsWith(`erro:${job.token}:`)) { const e = new Error(`a nuvem respondeu: ${m.message.slice(job.token.length + 6)}`); e.fatal = true; throw e; }
+      }
+      if (Date.now() - job.inicio > 3 * 60 * 1000 && Date.now() - (job.batida || 0) > 60000) {
+        job.batida = Date.now();
+        const g = await gpuEstado();
+        if (g.estado !== "pronta") { const e = new Error("a GPU na nuvem se desligou antes de terminar; clique em Gerar de novo"); e.fatal = true; throw e; }
+      }
+      return { fim: false, progresso: 0 };
+    },
+  };
+
+  async function kaggleEstado() {
+    const cfg = config();
+    if (!cfg.kaggleUser || !cfg.kaggleKey) return { conta: false };
+    const g = await gpuEstado().catch(() => ({ estado: "desligada" }));
+    return { conta: true, usuario: cfg.kaggleUser, ligada: g.estado === "pronta", ligando: !!gpuLigando || !!FASES_KAGGLE[g.estado] };
+  }
+
+  const semChaves = (msg, cfg = config()) => [cfg.artcraftKey, cfg.falKey, cfg.kaggleKey].filter((k) => k && k.length > 6).reduce((t, k) => t.split(k).join("***"), String(msg));
 
   const trabalhos = new Map(); // `${proj}:${no}` → Promise
 
@@ -896,13 +1189,13 @@ module.exports = function criarQuadro({
     salvar(doc);
     const p = (async () => {
       try {
-        if (motorId !== "comfy" || receitaTemVideo(no.saida)) await prepararTrechos(doc, no); // receita só de imagem não usa o vídeo base
+        if (!["comfy", "kaggle"].includes(motorId) || receitaTemVideo(no.saida)) await prepararTrechos(doc, no); // receita só de imagem não usa o vídeo base
         const info = await motor.iniciar(doc, no, cfg);
         no.job = { ...no.job, ...info };
         salvar(doc);
         await acompanhar(doc, no);
       } catch (e) {
-        no.estado = "erro"; no.erro = semChaves(e.message, cfg); delete no.job;
+        no.estado = "erro"; no.erro = semChaves(e.message, cfg); delete no.job; delete no.fase;
         salvar(doc);
       } finally {
         trabalhos.delete(k);
@@ -914,11 +1207,14 @@ module.exports = function criarQuadro({
 
   async function acompanhar(doc, no) {
     const motor = MOTORES[no.job.motor];
-    const limite = no.job.inicio + 45 * 60 * 1000;
+    let limite = no.job.inicio + 45 * 60 * 1000;
     let falhasRede = 0;
     while (Date.now() < limite) {
       await new Promise((r) => setTimeout(r, 4000));
-      if (!acharNo(doc, no.id)) return; // nó apagado
+      const atual = acharNo(doc, no.id);
+      if (!atual) return; // nó apagado
+      if (atual !== no) { Object.assign(atual, { estado: "gerando", job: no.job }); no = atual; } // voltou com Ctrl+Z
+
       let r;
       try { r = await motor.consultar(no.job, config()); falhasRede = 0; } catch (e) {
         if (e.fatal || /falhou na ArtCraft|inesperado|sem link/.test(e.message) || ++falhasRede > 8) throw e;
@@ -949,10 +1245,11 @@ module.exports = function criarQuadro({
           } catch {}
         }
         adicionarVersao(no, m.id);
-        delete no.job; delete no.progresso;
+        delete no.job; delete no.progresso; delete no.fase;
         salvar(doc);
         return;
       }
+      if (r.fase === "na fila") limite = Date.now() + 45 * 60 * 1000; // o tempo só conta depois que sai da fila
       if (r.progresso !== no.progresso) { no.progresso = r.progresso; avisar(doc.nome, { tipo: "progresso", no: no.id, progresso: r.progresso }); }
     }
     throw new Error("a geração passou de 45 minutos sem terminar");
@@ -1066,7 +1363,7 @@ module.exports = function criarQuadro({
   const arquivosFc = new Map(); // item do FilmCraft → caminho do arquivo no disco
 
   async function exigirFc() {
-    if (!(await appAberto("filmcraft"))) throw new Error("o FilmCraft não está aberto com o controle ligado (clique em Abrir FilmCraft)");
+    if (!(await appAberto("filmcraft"))) throw new Error("o FilmCraft não está aberto com o controle ligado (abra a timeline com T e clique em 📂 Escolher projeto e abrir)");
   }
 
   let arquivosFcEm = 0;
@@ -1618,10 +1915,11 @@ module.exports = function criarQuadro({
         return json(res, 200, { ...r, arquivos: r.imagens.concat(r.videos).map((id) => caminhoMidia(doc, doc.midias[id])) });
       }
       if (rota === "/api/comfy") return json(res, 200, await comfyEstado());
+      if (rota === "/api/kaggle") return json(res, 200, await kaggleEstado());
       if (rota === "/api/config") {
         const c = config();
         return json(res, 200, {
-          motor: c.motor, comfyUrl: c.comfyUrl, comfy: fs.existsSync(arqReceita("imagem")) || fs.existsSync(arqReceita("video")), artcraft: !!c.artcraftKey, fal: !!c.falKey, modelos: MODELOS, pasta: RAIZ, versao: VERSAO,
+          motor: c.motor, comfyUrl: c.comfyUrl, comfy: fs.existsSync(arqReceita("imagem")) || fs.existsSync(arqReceita("video")), artcraft: !!c.artcraftKey, fal: !!c.falKey, kaggle: c.kaggleUser || "", modelos: MODELOS, pasta: RAIZ, versao: VERSAO,
           github: origemAtualizacao ? origemAtualizacao.ler() : null,
           proporcoes: ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9", "4:5", "auto"],
         });
@@ -1736,8 +2034,9 @@ module.exports = function criarQuadro({
         return json(res, 200, { texto: t });
       }
       if (rota === "/api/atualizacao/verificar") {
-        if (verificarAgora) await verificarAgora().catch(() => {});
-        return json(res, 200, { versao: VERSAO, pronta: atualizacao(), podeReiniciar: !!reiniciar });
+        let erro = "";
+        if (verificarAgora) await verificarAgora().catch((e) => { erro = e.message; });
+        return json(res, 200, { versao: VERSAO, pronta: atualizacao(), podeReiniciar: !!reiniciar, erro });
       }
       if (rota === "/api/reiniciar") {
         if (!reiniciar) throw new Error("reinicie o Claude Desktop para usar a versão nova");
@@ -1763,12 +2062,20 @@ module.exports = function criarQuadro({
       if (rota === "/api/filmcraft/colocar") return json(res, 200, await colocarNaTimeline(proj, corpo));
       if (rota === "/api/config") {
         const m = {};
-        if (corpo.motor !== undefined) m.motor = ["artcraft", "fal", "comfy", "manual"].includes(corpo.motor) ? corpo.motor : undefined;
+        if (corpo.motor !== undefined) m.motor = ["artcraft", "fal", "comfy", "kaggle", "manual"].includes(corpo.motor) ? corpo.motor : undefined;
         if (corpo.artcraftKey !== undefined) m.artcraftKey = String(corpo.artcraftKey).trim();
         if (corpo.falKey !== undefined) m.falKey = String(corpo.falKey).trim();
         if (corpo.comfyUrl !== undefined) { const u = String(corpo.comfyUrl).trim(); if (u && !/^http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?\/?$/i.test(u) && !/^https?:\/\/[\w.-]+(:\d+)?\/?$/i.test(u)) throw new Error("endereço do ComfyUI inválido (ex.: http://127.0.0.1:8188)"); m.comfyUrl = u || "http://127.0.0.1:8188"; }
-        if (corpo.github !== undefined && origemAtualizacao) origemAtualizacao.gravar(corpo.github);
+        if (corpo.kaggle !== undefined) { // conteúdo do kaggle.json, ou { username, key }
+          let k = corpo.kaggle;
+          if (typeof k === "string") { try { k = JSON.parse(k); } catch { throw new Error("esse arquivo não é o kaggle.json"); } }
+          const user = String((k && k.username) || "").trim(), key = String((k && k.key) || "").trim();
+          if (!/^[\w-]{2,}$/.test(user) || key.length < 10) throw new Error("esse arquivo não é o kaggle.json (precisa ter username e key)");
+          m.kaggleUser = user; m.kaggleKey = key;
+          if (corpo.motor === undefined) m.motor = "kaggle";
+        }
         salvarConfig(m);
+        if (corpo.github !== undefined && origemAtualizacao) origemAtualizacao.gravar(corpo.github); // por último: se for inválido, o resto já ficou salvo
         return json(res, 200, { ok: true });
       }
       if (rota === "/api/comfy/receita") {

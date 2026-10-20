@@ -165,6 +165,7 @@ function htmlPrevia(m, no) {
 function opcoesModelo(no) {
   const c = est.cfg;
   if (c && c.motor === "comfy") return `<option value="">receita do ComfyUI</option>`;
+  if (c && c.motor === "kaggle") return `<option value="">Wan 2.2 (nuvem grátis)</option>`;
   const motor = c && c.motor !== "manual" ? c.motor : "artcraft";
   const lista = (c && c.modelos[motor] && c.modelos[motor][no.saida === "video" ? "video" : "imagem"]) || [];
   const todos = no.modelo && !lista.includes(no.modelo) ? [no.modelo, ...lista] : lista;
@@ -192,7 +193,7 @@ function htmlNo(no) {
   const iv = no.versoes.indexOf(no.atual);
   const prop = ((est.cfg && est.cfg.proporcoes) || ["16:9"]).map((p) => `<option ${p === no.proporcao ? "selected" : ""}>${p}</option>`).join("");
   let estado = "";
-  if (no.estado === "gerando") estado = `<div class="barra ${no.progresso ? "" : "indef"}"><i style="width:${no.progresso || 0}%"></i></div><div class="estado">Gerando${no.progresso ? ` · ${no.progresso}%` : "…"}</div>`;
+  if (no.estado === "gerando") estado = `<div class="barra ${no.progresso ? "" : "indef"}"><i style="width:${no.progresso || 0}%"></i></div><div class="estado">${esc(no.fase || "Gerando")}${no.progresso ? ` · ${no.progresso}%` : "…"}</div>`;
   else if (no.estado === "erro") estado = `<div class="estado erro">${esc(no.erro)}</div>`;
   else if (no.estado === "aguardando") estado = `<div class="barra indef"><i></i></div><div class="estado">Esperando o ${no.saida === "video" ? "vídeo" : "arquivo"} baixado do ArtCraft… <button data-acao="cancelar-espera">Cancelar</button></div>`;
   return `<div class="porta entrada" title="Entradas: referências e notas"></div><div class="porta saida" title="Puxe para usar este resultado em outro nó (ex.: animar a foto)"></div>
@@ -997,7 +998,9 @@ $("#motor").addEventListener("click", () => {
   f.artcraftKey.value = "";
   f.falKey.value = "";
   f.comfyUrl.value = est.cfg.comfyUrl || "";
+  mostrarSecoes();
   verificarComfy();
+  verificarKaggle();
   f.artcraftKey.placeholder = est.cfg.artcraft ? "•••••• (configurada)" : "artcraft_api_…";
   f.falKey.placeholder = est.cfg.fal ? "•••••• (configurada)" : "…";
   $("#cfg-pasta").textContent = est.cfg.pasta;
@@ -1006,6 +1009,32 @@ $("#motor").addEventListener("click", () => {
   $("#cfg-versao").textContent = `Versão atual: ${est.cfg.versao}.`;
   d.returnValue = "";
   d.showModal();
+});
+function mostrarSecoes() {
+  const m = $("#dlg-config form").motor.value;
+  for (const sec of $$("#dlg-config .cfg-sec")) sec.hidden = sec.dataset.para !== m;
+}
+$("#dlg-config form").motor.addEventListener("change", mostrarSecoes);
+async function verificarKaggle() {
+  const e = $("#cfg-kaggle-estado");
+  e.textContent = "Verificando o Kaggle…";
+  try {
+    const k = await pegar("/api/kaggle");
+    e.textContent = !k.conta ? "Conta do Kaggle ainda não ligada: escolha o kaggle.json acima." : `Conta ligada: ${k.usuario}. GPU na nuvem ${k.ligada ? "ligada agora" : k.ligando ? "ligando…" : "desligada (liga sozinha ao gerar)"}.`;
+  } catch (err) { e.textContent = err.message; }
+}
+$("#kaggle-json").addEventListener("change", async (ev) => {
+  const arq = ev.target.files[0];
+  if (!arq) return;
+  try {
+    await postar("/api/config", { kaggle: await arq.text() });
+    est.cfg = await pegar("/api/config");
+    $("#dlg-config form").motor.value = "kaggle";
+    mostrarSecoes();
+    aviso("Conta do Kaggle ligada. Agora é só clicar em Gerar num nó de vídeo.");
+  } catch (err) { aviso(err.message, true, 10000); }
+  ev.target.value = "";
+  verificarKaggle();
 });
 async function verificarComfy() {
   const e = $("#cfg-comfy-estado");
@@ -1523,7 +1552,7 @@ function conectarEventos() {
     if (d.tipo === "quadro" && (!est.doc || d.rev !== est.doc.rev)) { clearTimeout(t); t = setTimeout(carregarDoc, 80); }
     if (d.tipo === "progresso") {
       const n = est.doc && acharNo(d.no);
-      if (n) { n.progresso = d.progresso; desenharNos(); }
+      if (n) { n.progresso = d.progresso; if (d.fase) n.fase = d.fase; desenharNos(); }
     }
   };
   es.onerror = () => { es.close(); setTimeout(() => { conectarEventos(); carregarDoc(); }, 3000); }; // pega o que mudou durante a queda
@@ -1581,7 +1610,7 @@ const MENUS = {
   "Janela": [
     ["Tela cheia", "F11", () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen()).catch(() => {})],
     ["Recarregar o quadro", "", () => location.reload()],
-    ["Procurar atualização", "", async () => { aviso("Procurando atualização…"); try { await postar("/api/atualizacao/verificar"); } catch {} atualizacaoVista = ""; await conferirAtualizacao(); if ($("#atualizacao").hidden) aviso(`Você já está na versão mais recente (${est.cfg.versao}).`); }],
+    ["Procurar atualização", "", async () => { aviso("Procurando atualização…"); let erro = ""; try { erro = (await postar("/api/atualizacao/verificar")).erro || ""; } catch (e) { erro = e.message; } atualizacaoVista = ""; await conferirAtualizacao(); if (!$("#atualizacao").hidden) return; aviso(erro ? `Não consegui procurar atualização: ${erro}` : `Você já está na versão mais recente (${est.cfg.versao}).`, !!erro); }],
   ],
   "Atalhos": [
     ["Ver todos os atalhos", "?", () => alternarGuia()],

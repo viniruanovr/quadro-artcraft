@@ -16,7 +16,7 @@ Esta versão substitui as anteriores. **A partir da 2.2 o programa e a extensão
 4. No quadro: ⚙ › motor **Local: ComfyUI** › escolha o arquivo em "Receita de vídeo" (e "de foto"). O quadro mostra se o ComfyUI está ligado e qual é a sua placa.
 5. Ligue vídeos e imagens num nó **Gerar** e aperte Gerar: o quadro troca o prompt e as referências na receita, manda rodar e traz o resultado de volta ao nó.
 
-Sem placa potente? Veja [docs/KAGGLE.md](KAGGLE.md): ComfyUI grátis no Kaggle, com receita pronta.
+Sem placa potente? Desde a 2.8 o quadro liga sozinho uma GPU grátis no seu Kaggle: veja [docs/KAGGLE.md](KAGGLE.md).
 
 Limites: a receita decide quantas imagens/vídeos entram (um nó de carga por referência) e a qualidade depende do modelo e da placa. Vídeo "mesmo take + elemento novo" pede um modelo com referência de vídeo (família VACE) e placa grande.
 
