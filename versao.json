@@ -1,6 +1,6 @@
 {
-  "versao": "2.8.1",
+  "versao": "2.8.2",
   "arquivo": "quadro-bundle.js",
-  "sha256": "08497f90f4fdf50e6f7e0ff573fb44463a336e011dabcb2b351a4eef079f2fe2",
-  "notas": "Kaggle: aceita o token novo (KGAT_) colado em ⚙, com seu usuário"
+  "sha256": "490c2fca8c51fecf5f9b52d5336a9d9914dc42d0e2b94c0c0c0ff87990dfcf0a",
+  "notas": "Ao gerar vídeo sem conta ligada, o quadro pede o usuário e o token do Kaggle numa janelinha"
 }

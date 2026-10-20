@@ -122,6 +122,19 @@
 
 <div id="visor" hidden><div class="visor-conteudo"></div></div>
 
+<dialog id="dlg-nuvem">
+  <form method="dialog">
+    <h3>Ligar o vídeo grátis</h3>
+    <p class="dica">O vídeo é feito numa placa de vídeo grátis da sua conta do Kaggle. Só falta colar duas coisas aqui, uma vez só.</p>
+    <label>Seu usuário do Kaggle <input name="usuario" autocomplete="off" placeholder="o nome que aparece em kaggle.com/seu-nome"></label>
+    <p class="dica">No Kaggle: clique na sua foto (canto de cima à direita) › Your Profile. O usuário é o que vem depois de kaggle.com/ no endereço. Pode colar o endereço inteiro.</p>
+    <label>Token do Kaggle <input name="token" type="password" autocomplete="off" placeholder="KGAT_…"></label>
+    <p class="dica">É o código que começa com KGAT_ (Kaggle › Settings › API).</p>
+    <p class="dica" id="nuvem-erro"></p>
+    <div class="acoes"><button type="button" id="nuvem-cancelar" class="btn">Agora não</button><button value="ok" class="btn primario">Salvar e gerar</button></div>
+  </form>
+</dialog>
+
 <dialog id="dlg-config">
   <form method="dialog">
     <h3>Motor de geração</h3>

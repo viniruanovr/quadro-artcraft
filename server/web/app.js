@@ -125,10 +125,10 @@ function desenharTopo() {
   sel.innerHTML = [...new Set([...lista, d.nome])].map((p) => `<option ${p === d.nome ? "selected" : ""}>${esc(p)}</option>`).join("") + `<option value="+">＋ Novo projeto…</option>`;
   if (est.cfg) {
     const c = est.cfg;
-    const nomes = { artcraft: "ArtCraft", fal: "fal.ai", comfy: "Local", manual: "Manual" };
-    const tem = c.motor === "manual" || c[c.motor];
+    const nomes = { artcraft: "ArtCraft", fal: "fal.ai", comfy: "ComfyUI", kaggle: "Nuvem grátis", manual: "Manual" };
+    const tem = c.motor === "manual" || c.motor === "comfy" || c[c.motor];
     const s = $("#motor span");
-    s.textContent = `${nomes[c.motor]}${c.motor === "manual" ? "" : tem ? " ✓" : " · sem chave"}`;
+    s.textContent = `${nomes[c.motor] || c.motor}${c.motor === "manual" ? "" : tem ? " ✓" : c.motor === "kaggle" ? " · falta a conta" : " · sem chave"}`;
     s.className = tem ? "ok" : "falta";
   }
 }
@@ -617,6 +617,7 @@ $("#camada-nos").addEventListener("click", async (e) => {
         await postar("/api/esperar", { no: no.id });
         return carregarDoc();
       }
+      if (!(await nuvemPronta(no))) return;
       btn.disabled = true;
       const r = await postar("/api/gerar", { no: no.id });
       const x = r.resultados && r.resultados[0];
@@ -874,6 +875,35 @@ document.addEventListener("keydown", async (e) => {
   }
 });
 
+// Antes de gerar vídeo: se não há onde gerar (sem conta do Kaggle, ou ComfyUI desligado), pede só
+// o usuário e o token do Kaggle numa janelinha e já liga a nuvem grátis.
+async function nuvemPronta(no) {
+  const c = est.cfg || {};
+  if (no.saida !== "video") return true;
+  if (c.motor === "kaggle" && c.kaggle) return true;
+  if (!["kaggle", "comfy"].includes(c.motor)) return true;
+  if (c.motor === "comfy") { try { if ((await pegar("/api/comfy")).ligado) return true; } catch {} }
+  const d = $("#dlg-nuvem"), f = d.querySelector("form");
+  f.usuario.value = c.kaggle || ""; f.token.value = ""; $("#nuvem-erro").textContent = "";
+  for (;;) {
+    d.returnValue = "";
+    d.showModal();
+    await new Promise((ok) => d.addEventListener("close", ok, { once: true }));
+    if (d.returnValue !== "ok") return false;
+    const usuario = f.usuario.value.trim().replace(/^@/, "").replace(/^.*kaggle\.com\//i, "").replace(/[/?#].*$/, "");
+    const token = f.token.value.trim();
+    if (!usuario || !token) { $("#nuvem-erro").textContent = "Preencha os dois campos."; continue; }
+    try {
+      await postar("/api/config", { motor: "kaggle", kaggle: { username: usuario, key: token } });
+      est.cfg = await pegar("/api/config");
+      desenhar();
+      aviso("Nuvem grátis ligada. Gerando…");
+      return true;
+    } catch (err) { $("#nuvem-erro").textContent = err.message; }
+  }
+}
+$("#nuvem-cancelar").addEventListener("click", () => $("#dlg-nuvem").close(""));
+
 async function voltar(refazer) {
   try {
     const r = await postar(refazer ? "/api/refazer" : "/api/desfazer");
@@ -1015,7 +1045,7 @@ $("#motor").addEventListener("click", () => {
 });
 function mostrarSecoes() {
   const m = $("#dlg-config form").motor.value;
-  for (const sec of $$("#dlg-config .cfg-sec")) sec.hidden = sec.dataset.para !== m;
+  for (const sec of document.querySelectorAll("#dlg-config .cfg-sec")) sec.hidden = sec.dataset.para !== m;
 }
 $("#dlg-config form").motor.addEventListener("change", mostrarSecoes);
 async function verificarKaggle() {
