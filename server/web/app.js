@@ -1549,5 +1549,86 @@ function conectarEventos() {
   }
 })();
 
+// Barra de menus (Arquivo, Editar, Exibir, Janela, Atalhos, Configurações): reaproveita as ações que já existem.
+const tecla = (k, o = {}) => document.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, ...o }));
+const MENUS = {
+  "Arquivo": [
+    ["Importar foto ou vídeo…", "I", () => novo("imagem")],
+    ["Nova nota", "N", () => novo("nota")],
+    ["Novo Gerar foto", "G", () => novo("gerar-imagem")],
+    ["Novo Gerar vídeo", "V", () => novo("gerar-video")],
+    null,
+    ["Cena → FilmCraft", "", () => enviarCena("filmcraft")],
+    ["Cena → EffectCraft", "", () => enviarCena("effectcraft")],
+  ],
+  "Editar": [
+    ["Desfazer", "Ctrl+Z", () => voltar(false)],
+    ["Refazer", "Ctrl+Y", () => voltar(true)],
+    null,
+    ["Copiar", "Ctrl+C", () => tecla("c", { ctrlKey: true })],
+    ["Colar", "Ctrl+V", () => colarNos()],
+    ["Duplicar", "Ctrl+D", () => tecla("d", { ctrlKey: true })],
+    ["Selecionar tudo", "Ctrl+A", () => tecla("a", { ctrlKey: true })],
+    ["Apagar", "Del", () => tecla("Delete")],
+    null,
+    ["Gerar os selecionados", "Ctrl+Enter", () => gerarSelecionados()],
+  ],
+  "Exibir": [
+    ["Enquadrar a cena", "F", () => enquadrar()],
+    ["Timeline do FilmCraft", "T", () => alternarLinha(!linha.aberta)],
+    ["Biblioteca", "", () => alternarBiblioteca($("#biblioteca").classList.contains("fechada"))],
+  ],
+  "Janela": [
+    ["Tela cheia", "F11", () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen()).catch(() => {})],
+    ["Recarregar o quadro", "", () => location.reload()],
+    ["Procurar atualização", "", () => { atualizacaoVista = ""; conferirAtualizacao().then(() => { if ($("#atualizacao").hidden) aviso(`Você já está na versão mais recente (${est.cfg.versao}).`); }); }],
+  ],
+  "Atalhos": [
+    ["Ver todos os atalhos", "?", () => alternarGuia()],
+  ],
+  "Configurações": [
+    ["Motor de geração e chaves…", "", () => $("#motor").click()],
+    ["Atualizações automáticas…", "", () => $("#motor").click()],
+  ],
+};
+function fecharAba() {
+  const a = $("#menu-aba");
+  if (a) a.hidden = true;
+  for (const b of $("#menus").children) b.classList.remove("aberto");
+}
+function abrirAba(btn, nome) {
+  let a = $("#menu-aba");
+  if (!a) { a = document.createElement("div"); a.id = "menu-aba"; document.body.append(a); }
+  const aberto = btn.classList.contains("aberto");
+  fecharAba();
+  if (aberto) return;
+  a.replaceChildren();
+  for (const it of MENUS[nome]) {
+    if (!it) { a.append(document.createElement("hr")); continue; }
+    const b = document.createElement("button");
+    b.type = "button";
+    const t = document.createElement("span"); t.textContent = it[0];
+    const k = document.createElement("kbd"); k.textContent = it[1];
+    b.append(t, k);
+    b.addEventListener("click", () => { fecharAba(); Promise.resolve().then(it[2]).catch((e) => aviso(e.message, true)); });
+    a.append(b);
+  }
+  btn.classList.add("aberto");
+  const r = btn.getBoundingClientRect();
+  a.style.left = Math.min(r.left, innerWidth - 270) + "px";
+  a.style.top = r.bottom + 4 + "px";
+  a.hidden = false;
+}
+for (const nome of Object.keys(MENUS)) {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.textContent = nome;
+  b.addEventListener("click", (e) => { e.stopPropagation(); abrirAba(b, nome); });
+  b.addEventListener("mouseenter", () => { if ($("#menus .aberto") && !b.classList.contains("aberto")) abrirAba(b, nome); });
+  $("#menus").append(b);
+}
+document.addEventListener("click", fecharAba);
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") fecharAba(); });
+
 // Soltar um arquivo fora do quadro não pode abrir o arquivo no navegador e perder a sessão.
 for (const nome of ["dragover", "drop"]) window.addEventListener(nome, (e) => { if (e.dataTransfer && [...(e.dataTransfer.types || [])].includes("Files")) e.preventDefault(); });

@@ -1,6 +1,6 @@
 {
-  "versao": "2.6.1",
+  "versao": "2.7.0",
   "arquivo": "quadro-bundle.js",
-  "sha256": "65c973c12cb5ff7c01abc18b5d6eaf913c839e1dce76024e552b87af158e5c55",
-  "notas": "Receita pronta de vídeo (Wan 2.2 5B) com um clique em ⚙, caderno do Kaggle para gerar vídeo grátis fora do seu PC (docs/KAGGLE.md) e avisos mais claros quando a receita precisa de imagem."
+  "sha256": "658803328192cbdae0dccf6d195dc533461c5f45d7e2084901a9338c4ec2f417",
+  "notas": "Barra de menus no topo: Arquivo, Editar, Exibir, Janela, Atalhos e Configurações"
 }
