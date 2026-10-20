@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Quadro de Cenas</title>
+<link rel="icon" href="icone.svg">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header id="topo">
+  <div class="marca"><img src="icone.svg" alt=""> Quadro</div>
+  <select id="projeto" title="Projeto"></select>
+  <nav id="cenas"></nav>
+  <div class="espaco"></div>
+  <button id="linha-alternar" class="btn" title="Mostra a timeline da sequência aberta no FilmCraft embaixo do quadro">🎞 Timeline</button>
+  <button id="enviar-film" class="btn" title="Importa os resultados prontos desta cena no FilmCraft, num bin com o nome da cena">Cena → FilmCraft</button>
+  <button id="enviar-effect" class="btn" title="Importa os resultados prontos desta cena no EffectCraft, numa pasta com o nome da cena">Cena → EffectCraft</button>
+  <button id="motor" class="btn" title="Motor de geração e chaves">⚙ <span></span></button>
+  <button id="guia-alternar" class="btn" title="Guia: atalhos e funções (tecla ?)">?</button>
+</header>
+
+<aside id="biblioteca">
+  <div class="bib-cab">Biblioteca <button id="bib-fechar" class="mini" title="Recolher">‹</button></div>
+  <div id="lista-midia"></div>
+  <p class="dica">Arraste para o quadro para reusar em outra cena.</p>
+</aside>
+<button id="bib-abrir" class="mini" title="Biblioteca" hidden>›</button>
+
+<main id="palco">
+  <div id="mundo">
+    <svg id="fios" width="1" height="1"><path id="fio-temp" d=""/></svg>
+    <div id="camada-nos"></div>
+    <div id="camada-rotulos"></div>
+  </div>
+  <div id="vazio" hidden>
+    <h2>Monte a cena</h2>
+    <p>Arraste fotos (personagem, cenário) para cá, puxe um fio da bolinha da direita e solte no vazio para criar um nó <b>Gerar</b>. Escreva no fio o que gerar.</p>
+    <p class="dica">Clique duas vezes no fundo para adicionar · roda do mouse = zoom · arraste o fundo para mover</p>
+  </div>
+</main>
+
+<div id="ferramentas">
+  <button data-novo="imagem" title="Enviar imagem ou vídeo do computador">🖼 Mídia</button>
+  <button data-novo="nota" title="Nota de texto (roteiro, direção)">✎ Nota</button>
+  <button data-novo="gerar-imagem" title="Nó que gera uma foto">✦ Gerar foto</button>
+  <button data-novo="gerar-video" title="Nó que gera um vídeo">▶ Gerar vídeo</button>
+  <span class="sep"></span>
+  <button id="centralizar" title="Enquadrar a cena">⤢</button>
+  <span id="zoom">100%</span>
+</div>
+
+<section id="linha" hidden>
+  <div class="linha-cab">
+    <b>FilmCraft</b>
+    <button id="fc-projeto" class="btn" title="Escolher o projeto do FilmCraft">📂 <span>Projeto</span> ▾</button>
+    <select id="fc-sequencia" title="Sequência aberta na timeline" hidden></select>
+    <span id="linha-nome" class="suave"></span><span id="linha-tc"></span>
+    <span class="espaco"></span>
+    <span class="dica" id="linha-dica">clique = mover o playhead · arraste um clipe para o quadro · arraste um nó para cá</span>
+    <button id="linha-importar" class="btn" title="Traz os clipes de vídeo da sequência para uma cena com o nome dela, um nó por clipe">Sequência → cena</button>
+    <button id="linha-ver-monitor" class="mini" title="Mostrar/ocultar o monitor do programa">▣</button>
+    <button id="linha-fechar" class="mini" title="Fechar a timeline">×</button>
+  </div>
+  <div class="linha-corpo">
+    <div id="linha-faixas"><div id="linha-regua"></div><div id="linha-trilhas"></div><div id="linha-cabeca"></div><div id="linha-alvo" hidden></div></div>
+    <div id="linha-monitor"><img alt=""><span></span></div>
+  </div>
+  <div id="linha-off" hidden><p></p><div class="acoes-off"><button id="linha-abrir" class="btn primario">📂 Escolher projeto e abrir</button><button id="linha-controle" class="btn" hidden>Ligar sincronização permanente</button></div></div>
+  <div id="fc-projetos" hidden></div>
+</section>
+
+<aside id="guia" hidden>
+  <div class="guia-cab"><b>Guia</b><button id="guia-fechar" class="mini" title="Fechar (tecla ?)">×</button></div>
+  <div class="guia-corpo">
+    <h4>Começar</h4>
+    <ol>
+      <li>Arraste fotos para o quadro (ou <kbd>Ctrl</kbd>+<kbd>V</kbd>).</li>
+      <li>Puxe um fio da bolinha da direita e solte no vazio: nasce um nó <b>Gerar</b>.</li>
+      <li>Escreva no fio o que gerar e clique em <b>✦ Gerar</b>.</li>
+      <li><b>TL</b> manda o resultado para o playhead do FilmCraft.</li>
+    </ol>
+    <h4>Quadro</h4>
+    <dl>
+      <dt><kbd>Ctrl</kbd>+<kbd>Z</kbd></dt><dd>desfazer</dd>
+      <dt><kbd>Ctrl</kbd>+<kbd>Y</kbd></dt><dd>refazer (ou <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd>)</dd>
+      <dt><kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>V</kbd></dt><dd>copiar e colar nós (vale entre cenas); colar imagem ou texto cria nó</dd>
+      <dt><kbd>Ctrl</kbd>+<kbd>D</kbd></dt><dd>duplicar o selecionado</dd>
+      <dt><kbd>Ctrl</kbd>+<kbd>A</kbd></dt><dd>selecionar tudo da cena</dd>
+      <dt><kbd>Shift</kbd>+arrastar</dt><dd>selecionar com caixa (no fundo) · somar à seleção (no nó)</dd>
+      <dt><kbd>Del</kbd></dt><dd>apagar o selecionado</dd>
+      <dt><kbd>I</kbd> ou <kbd>Ctrl</kbd>+<kbd>I</kbd></dt><dd>importar foto ou vídeo do PC</dd>
+      <dt><kbd>N</kbd></dt><dd>nova nota (o <kbd>Ctrl</kbd>+<kbd>N</kbd> o navegador não libera)</dd>
+      <dt><kbd>G</kbd> / <kbd>V</kbd></dt><dd>novo Gerar foto / Gerar vídeo</dd>
+      <dt><kbd>Ctrl</kbd>+<kbd>Enter</kbd></dt><dd>gerar os nós selecionados</dd>
+      <dt><kbd>F</kbd></dt><dd>enquadrar a cena</dd>
+      <dt>roda do mouse</dt><dd>zoom · arrastar o fundo move</dd>
+      <dt>duplo clique</dt><dd>no fundo: menu rápido · na foto: tela cheia</dd>
+    </dl>
+    <h4>Timeline do FilmCraft</h4>
+    <dl>
+      <dt><kbd>T</kbd></dt><dd>mostrar/ocultar a timeline</dd>
+      <dt>📂 Projeto</dt><dd>escolher e abrir o projeto e a sequência</dd>
+      <dt>clique</dt><dd>mover o playhead do FilmCraft</dd>
+      <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>1 quadro · com <kbd>Shift</kbd>, 1 segundo</dd>
+      <dt><kbd>Home</kbd> / <kbd>End</kbd></dt><dd>início / fim da sequência</dd>
+      <dt><kbd>P</kbd></dt><dd>colocar o nó selecionado no playhead</dd>
+      <dt>arrastar clipe ↑</dt><dd>traz o clipe para o quadro</dd>
+      <dt>arrastar nó ↓</dt><dd>coloca na timeline no ponto solto, sem cobrir a edição</dd>
+      <dt>Sequência → cena</dt><dd>traz a sequência inteira, um nó por clipe</dd>
+    </dl>
+    <p class="dica">Tudo salva sozinho em Documentos\ArtCraft Quadro.</p>
+  </div>
+</aside>
+
+<div id="atualizacao" hidden><span></span><button class="btn primario">Reiniciar e atualizar</button><button class="mini" title="Depois">×</button></div>
+
+<div id="menu-rapido" hidden></div>
+<div id="avisos"></div>
+<input type="file" id="arquivo" multiple accept="image/*,video/*" hidden>
+
+<div id="visor" hidden><div class="visor-conteudo"></div></div>
+
+<dialog id="dlg-config">
+  <form method="dialog">
+    <h3>Motor de geração</h3>
+    <label>Gerar com
+      <select name="motor">
+        <option value="artcraft">ArtCraft (seus créditos da ArtCraft)</option>
+        <option value="fal">fal.ai</option>
+        <option value="manual">Manual (copio o prompt e gero por fora)</option>
+      </select>
+    </label>
+    <label>Chave da API ArtCraft <input name="artcraftKey" type="password" autocomplete="off" placeholder="artcraft_api_…"></label>
+    <p class="dica">Em app.getartcraft.com › Account › Settings › API Keys. Se a seção não aparecer, a ArtCraft precisa liberar a API na sua conta (Discord da ArtCraft).</p>
+    <label>Chave da fal.ai (opcional) <input name="falKey" type="password" autocomplete="off" placeholder="…"></label>
+    <p class="dica">fal.ai/dashboard/keys. Cobra direto no cartão, por geração.</p>
+    <label>Atualizações automáticas: seu usuário do GitHub <input name="github" autocomplete="off" placeholder="ex.: viniciusruano"></label>
+    <p class="dica">O quadro baixa as versões novas do repositório público github.com/<b>usuário</b>/quadro-artcraft. <span id="cfg-versao"></span></p>
+    <p class="dica">Deixe a chave em branco para manter a atual. Os arquivos do quadro ficam em <code id="cfg-pasta"></code>.</p>
+    <div class="acoes"><button value="cancelar" class="btn">Cancelar</button><button value="salvar" class="btn primario">Salvar</button></div>
+  </form>
+</dialog>
+
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+# Ao criar uma tag vX.Y.Z: monta o programa Windows e a extensão e publica num Release.
+name: release
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  montar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.22.0"
+      - run: npm run testar
+      - run: node scripts/montar.js --exe
+      - name: Publicar o Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          if [ "${GITHUB_REF_TYPE}" != "tag" ]; then TAG="v$(node -p 'require("./package.json").version')"; fi
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "Quadro ArtCraft $TAG" --notes "$(node -p 'require("./versao.json").notas || ""')"
+          gh release upload "$TAG" dist/quadro-artcraft-windows.zip dist/artcraft-claude.mcpb --clobber

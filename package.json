@@ -1,0 +1,36 @@
+{
+  "name": "quadro-artcraft",
+  "version": "2.3.1",
+  "description": "Servidor MCP + Quadro de Cenas: liga o Claude aos apps ArtCraft (FilmCraft, EffectCraft, PhotoCraft...) e a um quadro de nós para gerar e montar cena a cena.",
+  "license": "MIT",
+  "author": "Vinícius Ruano",
+  "bin": {
+    "quadro-artcraft": "server/index.js"
+  },
+  "main": "server/index.js",
+  "files": [
+    "server",
+    "skill",
+    "manifest.json"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "quadro": "node server/index.js --quadro --abrir",
+    "mcp": "node server/index.js",
+    "montar": "node scripts/montar.js",
+    "montar:exe": "node scripts/montar.js --exe",
+    "testar": "node --check server/index.js && node --check server/quadro.js && node --check server/atualizar.js && node --check server/web/app.js"
+  },
+  "keywords": [
+    "mcp",
+    "claude",
+    "artcraft",
+    "filmcraft",
+    "effectcraft",
+    "storyboard",
+    "ia",
+    "video"
+  ]
+}

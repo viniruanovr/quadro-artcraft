@@ -1,0 +1,149 @@
+{
+  "manifest_version": "0.3",
+  "name": "artcraft",
+  "display_name": "ArtCraft para Claude",
+  "version": "2.3.1",
+  "description": "Controle os apps ArtCraft com comandos em português e monte cenas num quadro de nós que gera fotos e vídeos e manda para o FilmCraft e o EffectCraft.",
+  "long_description": "Liga o Claude a todos os apps ArtCraft instalados no computador. O Claude descobre o que está instalado, abre os apps com o canal de controle ligado e executa as edições que você pedir direto na janela do app, ou em arquivos sem abrir janela. Usa o servidor MCP que cada app ArtCraft já traz (<app>-cli mcp), então funciona com os comandos oficiais de cada programa. Inclui o Quadro de Cenas: um quadro de nós no navegador (localhost:7700) onde você sobe fotos de personagem e cenário, liga com fios, escreve no fio o que gerar e envia o resultado para o FilmCraft e o EffectCraft, organizado por cena. O Claude lê e edita o mesmo quadro.",
+  "author": {
+    "name": "Vinícius Ruano"
+  },
+  "license": "MIT",
+  "keywords": [
+    "artcraft",
+    "photocraft",
+    "filmcraft",
+    "effectcraft",
+    "edição",
+    "vídeo",
+    "imagem",
+    "quadro",
+    "storyboard",
+    "nós",
+    "geração"
+  ],
+  "server": {
+    "type": "node",
+    "entry_point": "server/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": [
+        "${__dirname}/server/index.js"
+      ],
+      "env": {
+        "ARTCRAFT_PASTA_LEITURA": "${user_config.pasta_leitura}",
+        "ARTCRAFT_PASTA_SAIDA": "${user_config.pasta_saida}",
+        "ARTCRAFT_PASTAS_INSTALACAO": "${user_config.pastas_instalacao}",
+        "ARTCRAFT_API_KEY": "${user_config.artcraft_api_key}",
+        "FAL_KEY": "${user_config.fal_key}",
+        "ARTCRAFT_QUADRO_PASTA": "${user_config.pasta_quadro}"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "artcraft_status",
+      "description": "Lista os apps ArtCraft instalados e quais estão prontos para comandos."
+    },
+    {
+      "name": "artcraft_abrir",
+      "description": "Abre um app ArtCraft com o canal de controle ligado."
+    },
+    {
+      "name": "artcraft_ferramentas",
+      "description": "Lista as ferramentas MCP de um app."
+    },
+    {
+      "name": "artcraft_usar",
+      "description": "Executa uma ferramenta do app (comandos de edição, prévias, capturas)."
+    },
+    {
+      "name": "artcraft_encerrar_sessao",
+      "description": "Encerra a conexão do Claude com um app."
+    },
+    {
+      "name": "artcraft_controle_permanente",
+      "description": "Faz os apps abrirem com controle mesmo pelo launcher (Windows)."
+    },
+    {
+      "name": "quadro_abrir",
+      "description": "Abre o Quadro de Cenas no navegador."
+    },
+    {
+      "name": "quadro_ver",
+      "description": "Resumo das cenas, nós e fios do quadro."
+    },
+    {
+      "name": "quadro_editar",
+      "description": "Cria e edita cenas, nós e fios do quadro."
+    },
+    {
+      "name": "quadro_gerar",
+      "description": "Gera a foto ou o vídeo de um nó (ArtCraft ou fal.ai)."
+    },
+    {
+      "name": "quadro_enviar",
+      "description": "Manda os resultados para o FilmCraft / EffectCraft, por cena."
+    },
+    {
+      "name": "quadro_timeline",
+      "description": "Vê a sequência aberta no FilmCraft, traz clipes para o quadro e coloca resultados no playhead."
+    }
+  ],
+  "user_config": {
+    "pasta_leitura": {
+      "type": "directory",
+      "title": "Pasta que o Claude pode ler (modo arquivo)",
+      "description": "No modo sem janela, os apps só leem arquivos dentro desta pasta. Em branco = sua pasta de usuário.",
+      "required": false,
+      "default": ""
+    },
+    "pasta_saida": {
+      "type": "directory",
+      "title": "Pasta onde o Claude pode salvar (modo arquivo)",
+      "description": "No modo sem janela, os apps só gravam dentro desta pasta. Em branco = Documentos\\ArtCraft Claude.",
+      "required": false,
+      "default": ""
+    },
+    "pastas_instalacao": {
+      "type": "string",
+      "title": "Pastas de instalação extras (opcional)",
+      "description": "Só se você instalou os apps fora de C:\\Program Files. Separe várias pastas com ponto e vírgula.",
+      "required": false,
+      "default": ""
+    },
+    "artcraft_api_key": {
+      "type": "string",
+      "title": "Chave da API ArtCraft (para gerar no quadro)",
+      "description": "app.getartcraft.com › Account › Settings › API Keys. Também dá para colar depois no ⚙ do quadro.",
+      "sensitive": true,
+      "required": false,
+      "default": ""
+    },
+    "fal_key": {
+      "type": "string",
+      "title": "Chave da fal.ai (opcional)",
+      "description": "Alternativa para gerar se a API da ArtCraft não estiver liberada na sua conta.",
+      "sensitive": true,
+      "required": false,
+      "default": ""
+    },
+    "pasta_quadro": {
+      "type": "directory",
+      "title": "Pasta do Quadro de Cenas (opcional)",
+      "description": "Onde ficam projetos, imagens e vídeos do quadro. Em branco = Documentos\\ArtCraft Quadro.",
+      "required": false,
+      "default": ""
+    }
+  },
+  "compatibility": {
+    "platforms": [
+      "win32",
+      "darwin",
+      "linux"
+    ],
+    "runtimes": {
+      "node": ">=18.0.0"
+    }
+  }
+}

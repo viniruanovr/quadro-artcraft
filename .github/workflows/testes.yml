@@ -1,0 +1,19 @@
+name: testes
+on: [push, pull_request]
+jobs:
+  checar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm run testar
+      - name: O quadro sobe e responde
+        run: |
+          ARTCRAFT_QUADRO_PORTA=7799 ARTCRAFT_SEM_ATUALIZACAO=1 node server/index.js --quadro &
+          for i in $(seq 1 20); do curl -fs localhost:7799/api/ping && exit 0; sleep 0.5; done; exit 1
+      - name: O servidor MCP lista as ferramentas
+        run: |
+          printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"1"}}}' '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+            | ARTCRAFT_QUADRO_PORTA=7798 ARTCRAFT_SEM_ATUALIZACAO=1 timeout 5 node server/index.js | grep -q quadro_timeline
