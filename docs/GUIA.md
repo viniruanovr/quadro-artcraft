@@ -8,6 +8,16 @@ Esta versão substitui as anteriores. **A partir da 2.2 o programa e a extensão
 - Os botões **FC** e **EC** (ou "Cena → FilmCraft") importam o resultado no FilmCraft ou no EffectCraft, num bin/pasta com o nome da cena ("Cena 4").
 - O Claude enxerga e edita o mesmo quadro. Dá para pedir "melhora os prompts da cena 4", "gera o plano 2" ou "manda a cena 4 pro FilmCraft".
 
+## Novo na 2.6: gerar na sua placa de vídeo (ComfyUI, grátis)
+
+1. Instale o **ComfyUI** (comfy.org/download, versão Desktop) e abra-o. Ele roda os modelos abertos na sua placa de vídeo; sem custo por geração.
+2. No ComfyUI, abra **Templates** e escolha um modelo de vídeo que caiba na sua placa (por exemplo Wan 2.2 ou LTX, imagem para vídeo). Deixe ele baixar os modelos e teste uma geração.
+3. Com o teste funcionando: **Workflow › Export (API)** e salve o arquivo. Faça o mesmo com um modelo de foto, se quiser.
+4. No quadro: ⚙ › motor **Local: ComfyUI** › escolha o arquivo em "Receita de vídeo" (e "de foto"). O quadro mostra se o ComfyUI está ligado e qual é a sua placa.
+5. Ligue vídeos e imagens num nó **Gerar** e aperte Gerar: o quadro troca o prompt e as referências na receita, manda rodar e traz o resultado de volta ao nó.
+
+Limites: a receita decide quantas imagens/vídeos entram (um nó de carga por referência) e a qualidade depende do modelo e da placa. Vídeo "mesmo take + elemento novo" pede um modelo com referência de vídeo (família VACE) e placa grande.
+
 ## Novo na 2.5: vídeo base + PNGs, ícone próprio
 
 - **Vídeo base + imagens → vídeo novo, sozinho.** Traga o clipe da timeline (Sequência → cena, ou arraste da timeline), ligue-o e os PNGs num nó **Gerar vídeo** e escreva o que quer. O botão 🎬 no clipe decide se vai o **vídeo do trecho** (padrão para clipes de vídeo: o FilmCraft exporta o trecho, até 15 s) ou só o quadro parado. Com a chave da ArtCraft, o resultado volta sozinho para o nó; use ⇄ para trocar o clipe na timeline.

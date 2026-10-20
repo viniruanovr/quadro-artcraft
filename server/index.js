@@ -15,7 +15,7 @@ const net = require("node:net");
 const os = require("node:os");
 const path = require("node:path");
 
-const VERSAO = "2.5.2";
+const VERSAO = "2.6.0";
 const WINDOWS = process.platform === "win32";
 const atualizar = require("./atualizar");
 

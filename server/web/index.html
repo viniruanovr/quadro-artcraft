@@ -128,6 +128,7 @@
       <select name="motor">
         <option value="artcraft">ArtCraft (seus créditos da ArtCraft)</option>
         <option value="fal">fal.ai</option>
+        <option value="comfy">Local: ComfyUI na sua placa de vídeo (grátis)</option>
         <option value="manual">Manual (copio o prompt e gero por fora)</option>
       </select>
     </label>
@@ -135,6 +136,11 @@
     <p class="dica">Em app.getartcraft.com › Account › Settings › API Keys. Se a seção não aparecer, a ArtCraft precisa liberar a API na sua conta (Discord da ArtCraft).</p>
     <label>Chave da fal.ai (opcional) <input name="falKey" type="password" autocomplete="off" placeholder="…"></label>
     <p class="dica">fal.ai/dashboard/keys. Cobra direto no cartão, por geração.</p>
+    <label>ComfyUI (geração local) <input name="comfyUrl" autocomplete="off" placeholder="http://127.0.0.1:8188"></label>
+    <p class="dica" id="cfg-comfy-estado">Verificando o ComfyUI…</p>
+    <label>Receita de foto <input type="file" id="receita-imagem" accept=".json,application/json"></label>
+    <label>Receita de vídeo <input type="file" id="receita-video" accept=".json,application/json"></label>
+    <p class="dica">No ComfyUI, abra um modelo de imagem/vídeo que funcione na sua placa, teste uma vez e use <b>Workflow › Export (API)</b>. Escolha aqui o arquivo salvo. O quadro troca o prompt, as imagens e os vídeos ligados nos fios.</p>
     <label>Atualizações automáticas: seu usuário do GitHub <input name="github" autocomplete="off" placeholder="viniruanovr"></label>
     <p class="dica">O quadro baixa as versões novas do repositório público github.com/<b>usuário</b>/quadro-artcraft. <span id="cfg-versao"></span></p>
     <p class="dica">Deixe a chave em branco para manter a atual. Os arquivos do quadro ficam em <code id="cfg-pasta"></code>.</p>

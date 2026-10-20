@@ -125,7 +125,7 @@ function desenharTopo() {
   sel.innerHTML = [...new Set([...lista, d.nome])].map((p) => `<option ${p === d.nome ? "selected" : ""}>${esc(p)}</option>`).join("") + `<option value="+">＋ Novo projeto…</option>`;
   if (est.cfg) {
     const c = est.cfg;
-    const nomes = { artcraft: "ArtCraft", fal: "fal.ai", manual: "Manual" };
+    const nomes = { artcraft: "ArtCraft", fal: "fal.ai", comfy: "Local", manual: "Manual" };
     const tem = c.motor === "manual" || c[c.motor];
     const s = $("#motor span");
     s.textContent = `${nomes[c.motor]}${c.motor === "manual" ? "" : tem ? " ✓" : " · sem chave"}`;
@@ -164,6 +164,7 @@ function htmlPrevia(m, no) {
 
 function opcoesModelo(no) {
   const c = est.cfg;
+  if (c && c.motor === "comfy") return `<option value="">receita do ComfyUI</option>`;
   const motor = c && c.motor !== "manual" ? c.motor : "artcraft";
   const lista = (c && c.modelos[motor] && c.modelos[motor][no.saida === "video" ? "video" : "imagem"]) || [];
   const todos = no.modelo && !lista.includes(no.modelo) ? [no.modelo, ...lista] : lista;
@@ -995,6 +996,8 @@ $("#motor").addEventListener("click", () => {
   f.motor.value = est.cfg.motor;
   f.artcraftKey.value = "";
   f.falKey.value = "";
+  f.comfyUrl.value = est.cfg.comfyUrl || "";
+  verificarComfy();
   f.artcraftKey.placeholder = est.cfg.artcraft ? "•••••• (configurada)" : "artcraft_api_…";
   f.falKey.placeholder = est.cfg.fal ? "•••••• (configurada)" : "…";
   $("#cfg-pasta").textContent = est.cfg.pasta;
@@ -1004,6 +1007,28 @@ $("#motor").addEventListener("click", () => {
   d.returnValue = "";
   d.showModal();
 });
+async function verificarComfy() {
+  const e = $("#cfg-comfy-estado");
+  e.textContent = "Verificando o ComfyUI…";
+  try {
+    const c = await pegar("/api/comfy");
+    const rec = `receita de foto ${c.receitas.imagem ? "✓" : "—"} · de vídeo ${c.receitas.video ? "✓" : "—"}`;
+    e.textContent = c.ligado ? `ComfyUI ligado${c.placa ? ` · ${c.placa}` : ""}${c.vramGB ? ` · ${c.vramGB} GB de memória de vídeo` : ""} · ${rec}` : `ComfyUI desligado (${c.url}). Abra o ComfyUI para gerar localmente · ${rec}`;
+  } catch (err) { e.textContent = err.message; }
+}
+for (const tipo of ["imagem", "video"]) {
+  $(`#receita-${tipo}`).addEventListener("change", async (ev) => {
+    const arq = ev.target.files[0];
+    if (!arq) return;
+    try {
+      const r = await postar("/api/comfy/receita", { tipo, json: await arq.text() });
+      aviso(`Receita de ${tipo === "video" ? "vídeo" : "foto"} salva (${r.nos} nós).`);
+      est.cfg = await pegar("/api/config");
+    } catch (err) { aviso(err.message, true, 10000); }
+    ev.target.value = "";
+    verificarComfy();
+  });
+}
 $("#cfg-cancelar").addEventListener("click", () => $("#dlg-config").close("cancelar"));
 $("#dlg-config").addEventListener("close", async () => {
   const d = $("#dlg-config");
@@ -1012,6 +1037,7 @@ $("#dlg-config").addEventListener("close", async () => {
   const corpo = { motor: f.motor.value };
   if (f.artcraftKey.value.trim()) corpo.artcraftKey = f.artcraftKey.value.trim();
   if (f.falKey.value.trim()) corpo.falKey = f.falKey.value.trim();
+  if (f.comfyUrl.value.trim() !== (est.cfg.comfyUrl || "")) corpo.comfyUrl = f.comfyUrl.value.trim();
   if (!f.github.disabled && f.github.value.trim() !== (est.cfg.github || "")) corpo.github = f.github.value.trim();
   try { await postar("/api/config", corpo); } catch (err) { return aviso(err.message, true); }
   est.cfg = await pegar("/api/config");

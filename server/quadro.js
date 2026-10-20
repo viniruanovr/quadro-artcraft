@@ -110,12 +110,12 @@ module.exports = function criarQuadro({
     const artcraftKey = c.artcraftKey || lerConfig("ARTCRAFT_API_KEY");
     const falKey = c.falKey || lerConfig("FAL_KEY");
     const motor = c.motor || (artcraftKey ? "artcraft" : falKey ? "fal" : "manual");
-    return { motor, artcraftKey, falKey, ativo: c.ativo || "" };
+    return { motor, artcraftKey, falKey, ativo: c.ativo || "", comfyUrl: String(c.comfyUrl || "http://127.0.0.1:8188").replace(/\/+$/, "") };
   }
 
   function salvarConfig(mudancas) {
     const c = lerJson(ARQ_CONFIG, {});
-    for (const k of ["motor", "artcraftKey", "falKey", "ativo"]) if (mudancas[k] !== undefined) c[k] = mudancas[k];
+    for (const k of ["motor", "artcraftKey", "falKey", "ativo", "comfyUrl"]) if (mudancas[k] !== undefined) c[k] = mudancas[k];
     gravarJson(ARQ_CONFIG, c);
   }
 
@@ -508,7 +508,7 @@ module.exports = function criarQuadro({
     return doc.ligacoes.filter((l) => l.para === no.id).map((l) => ({ l, de: acharNo(doc, l.de) })).filter((x) => x.de);
   }
 
-  function montarPrompt(doc, no) {
+  function montarPrompt(doc, no, { simples = false } = {}) {
     const imagens = [];
     const videos = [];
     const rotulos = [];
@@ -523,7 +523,7 @@ module.exports = function criarQuadro({
     }
     if (no.prompt && no.prompt.trim()) instrucoes.push(no.prompt.trim());
     const partes = [];
-    if (rotulos.length > 1 || (rotulos.length === 1 && no.saida !== "video")) partes.push(`Referências: ${rotulos.join("; ")}.`);
+    if (!simples && (rotulos.length > 1 || (rotulos.length === 1 && no.saida !== "video"))) partes.push(`Referências: ${rotulos.join("; ")}.`);
     partes.push(...instrucoes);
     return { prompt: partes.join("\n"), imagens, videos };
   }
@@ -729,6 +729,139 @@ module.exports = function criarQuadro({
     return { pasta, arquivos, prompt };
   }
 
+  // -------------------------------------------------------------------------------------------
+  // Motor local: ComfyUI (programa gratuito que roda os modelos abertos na placa de vídeo do PC)
+  // -------------------------------------------------------------------------------------------
+  // A pessoa salva no ComfyUI uma "receita" (Workflow › Export (API)) para foto e outra para vídeo.
+  // O quadro troca nela o prompt, as imagens e os vídeos de referência, sorteia a semente e manda rodar.
+
+  const PASTA_COMFY = path.join(DADOS, "comfy");
+  const arqReceita = (tipo) => path.join(PASTA_COMFY, `${tipo === "video" ? "video" : "imagem"}.json`);
+
+  function validarReceita(wf) {
+    if (!wf || typeof wf !== "object" || Array.isArray(wf)) throw new Error("o arquivo não é uma receita do ComfyUI");
+    if (Array.isArray(wf.nodes) && Array.isArray(wf.links)) throw new Error("esse arquivo está no formato de tela. No ComfyUI use Workflow › Export (API) e escolha o arquivo gerado");
+    const nos = Object.values(wf);
+    if (!nos.length || !nos.every((n) => n && typeof n === "object" && typeof n.class_type === "string" && n.inputs && typeof n.inputs === "object")) throw new Error("receita inválida: use Workflow › Export (API) no ComfyUI");
+    return wf;
+  }
+
+  const ehLigacao = (v) => Array.isArray(v) && v.length === 2 && typeof v[0] !== "object";
+
+  // Procura, a partir de um nó, o nó de texto que alimenta o prompt (sobe pelas ligações).
+  function acharTexto(wf, id, vistos = new Set(), prof = 0) {
+    if (!wf[id] || vistos.has(id) || prof > 6) return null;
+    vistos.add(id);
+    const n = wf[id];
+    if (typeof n.inputs.text === "string" || typeof n.inputs.prompt === "string") return { no: n, campo: typeof n.inputs.text === "string" ? "text" : "prompt" };
+    for (const v of Object.values(n.inputs)) if (ehLigacao(v)) { const r = acharTexto(wf, String(v[0]), vistos, prof + 1); if (r) return r; }
+    return null;
+  }
+
+  function injetarReceita(wf, { prompt, imagens, videos }) {
+    wf = JSON.parse(JSON.stringify(wf));
+    const ids = Object.keys(wf).sort((a, b) => Number(a) - Number(b));
+    // prompt: o texto ligado à entrada "positive" de algum amostrador; senão o primeiro sem "negative" no nome
+    let alvo = null;
+    for (const id of ids) {
+      const pos = wf[id].inputs.positive;
+      if (ehLigacao(pos)) { alvo = acharTexto(wf, String(pos[0])); if (alvo) break; }
+    }
+    if (!alvo) {
+      for (const id of ids) {
+        const n = wf[id];
+        const titulo = String((n._meta && n._meta.title) || "");
+        if (/TextEncode|Prompt/i.test(n.class_type) && typeof n.inputs.text === "string" && !/neg/i.test(titulo)) { alvo = { no: n, campo: "text" }; break; }
+      }
+    }
+    if (!alvo) throw new Error("não achei onde entra o prompt na receita (precisa de um nó CLIPTextEncode ligado ao positivo)");
+    alvo.no.inputs[alvo.campo] = prompt;
+    // semente nova a cada geração
+    for (const id of ids) for (const k of ["seed", "noise_seed"]) if (typeof wf[id].inputs[k] === "number") wf[id].inputs[k] = Math.floor(Math.random() * 2 ** 48);
+    // imagens e vídeos de referência, na ordem dos nós de carga
+    const cargaImg = ids.filter((id) => /^(LoadImage|LoadImageMask|VHS_LoadImage)/.test(wf[id].class_type) && typeof wf[id].inputs.image === "string");
+    const cargaVid = ids.filter((id) => /LoadVideo/.test(wf[id].class_type) && typeof wf[id].inputs.video === "string");
+    const usados = { imagens: Math.min(cargaImg.length, imagens.length), videos: Math.min(cargaVid.length, videos.length) };
+    cargaImg.slice(0, usados.imagens).forEach((id, i) => { wf[id].inputs.image = imagens[i]; });
+    cargaVid.slice(0, usados.videos).forEach((id, i) => { wf[id].inputs.video = videos[i]; });
+    // carga que sobrou sem arquivo ligado: avisa em vez de gerar com a imagem de exemplo da receita
+    if (cargaImg.length > imagens.length && imagens.length) usados.faltamImagens = cargaImg.length - imagens.length;
+    return { wf, usados, deixouDeLado: { imagens: imagens.length - usados.imagens, videos: videos.length - usados.videos } };
+  }
+
+  async function comfyPedir(cfg, rota, opts = {}) {
+    const r = await fetch(`${cfg.comfyUrl}${rota}`, { signal: AbortSignal.timeout(opts.timeout || 20000), ...opts }).catch((e) => {
+      throw new Error(`não consegui falar com o ComfyUI em ${cfg.comfyUrl} (${e.cause && e.cause.code ? e.cause.code : e.message}). Abra o ComfyUI e deixe-o rodando`);
+    });
+    return r;
+  }
+
+  async function comfyEstado() {
+    const cfg = config();
+    const receitas = { imagem: fs.existsSync(arqReceita("imagem")), video: fs.existsSync(arqReceita("video")) };
+    try {
+      const r = await comfyPedir(cfg, "/system_stats", { timeout: 3000 });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const j = await r.json();
+      const gpu = ((j.devices || []).find((d) => d.type !== "cpu") || (j.devices || [])[0]) || null;
+      return { url: cfg.comfyUrl, ligado: true, placa: gpu ? gpu.name : null, vramGB: gpu && gpu.vram_total ? Math.round((gpu.vram_total / 1073741824) * 10) / 10 : null, receitas };
+    } catch (e) { return { url: cfg.comfyUrl, ligado: false, erro: e.message, receitas }; }
+  }
+
+  async function enviarAoComfy(cfg, doc, m) {
+    const fd = new FormData();
+    const ext = path.extname(m.arquivo);
+    fd.append("image", new Blob([fs.readFileSync(caminhoMidia(doc, m))], { type: MIME[ext.toLowerCase()] || "application/octet-stream" }), `quadro_${m.id}${ext}`);
+    fd.append("overwrite", "true");
+    const r = await comfyPedir(cfg, "/upload/image", { method: "POST", body: fd, timeout: 120000 });
+    if (!r.ok) throw new Error(`ComfyUI recusou o envio de ${m.arquivo} (HTTP ${r.status})`);
+    const j = await r.json();
+    return j.subfolder ? `${j.subfolder}/${j.name}` : j.name;
+  }
+
+  MOTORES.comfy = {
+    nome: "Local (ComfyUI)",
+    async iniciar(doc, no, cfg) {
+      const video = no.saida === "video";
+      let wf;
+      try { wf = validarReceita(JSON.parse(fs.readFileSync(arqReceita(video ? "video" : "imagem"), "utf8"))); } catch (e) {
+        if (e.code === "ENOENT") throw new Error(`falta a receita de ${video ? "vídeo" : "foto"} do ComfyUI. Em ⚙ › Local, escolha o arquivo exportado do ComfyUI (Workflow › Export (API))`);
+        throw e;
+      }
+      const { prompt, imagens, videos } = montarPrompt(doc, no, { simples: true }); // modelos locais não entendem "imagem 1 = …"
+      const sobe = async (ids) => { const r = []; for (const id of ids) r.push(await enviarAoComfy(cfg, doc, doc.midias[id])); return r; };
+      const arqImg = await sobe(imagens), arqVid = await sobe(videos);
+      const { wf: pronta, deixouDeLado } = injetarReceita(wf, { prompt, imagens: arqImg, videos: arqVid });
+      const r = await comfyPedir(cfg, "/prompt", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: pronta, client_id: "quadro-artcraft" }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        const det = j.node_errors ? Object.values(j.node_errors).map((n) => (n.errors || []).map((e) => e.message).join("; ")).filter(Boolean).join(" | ") : "";
+        throw new Error(`ComfyUI recusou a receita: ${(j.error && (j.error.message || j.error)) || `HTTP ${r.status}`}${det ? ` (${det})` : ""}`);
+      }
+      const aviso = deixouDeLado.imagens || deixouDeLado.videos ? ` (a receita só tem lugar para parte das referências: ${deixouDeLado.imagens} imagem(ns) e ${deixouDeLado.videos} vídeo(s) ficaram de fora)` : "";
+      if (aviso) log(`comfy:${aviso}`);
+      return { token: j.prompt_id, modelo: "ComfyUI local", prompt, avisoReceita: aviso.trim() };
+    },
+    async consultar(job, cfg) {
+      const r = await comfyPedir(cfg, `/history/${encodeURIComponent(job.token)}`, { timeout: 15000 });
+      const h = (await r.json().catch(() => ({})))[job.token];
+      if (!h) return { fim: false, progresso: 0, fase: "na fila" };
+      const st = h.status || {};
+      if (st.status_str === "error") {
+        const msg = (st.messages || []).find((m) => m[0] === "execution_error");
+        const e = new Error(`a geração falhou no ComfyUI${msg && msg[1] ? `: ${msg[1].exception_message || msg[1].node_type || ""}` : ""}`);
+        e.fatal = true;
+        throw e;
+      }
+      if (!st.completed && st.status_str !== "success") return { fim: false, progresso: 0, fase: "gerando" };
+      const video = EXT_VIDEO, imagem = EXT_IMAGEM;
+      const arquivos = Object.values(h.outputs || {}).flatMap((o) => ["images", "gifs", "videos"].flatMap((k) => o[k] || [])).filter((f) => f && f.filename && f.type !== "temp");
+      const alvo = arquivos.reverse().find((f) => video.has(path.extname(f.filename).toLowerCase())) || arquivos.find((f) => imagem.has(path.extname(f.filename).toLowerCase()));
+      if (!alvo) { const e = new Error("o ComfyUI terminou, mas a receita não salvou nenhuma imagem ou vídeo (precisa de um nó Save)"); e.fatal = true; throw e; }
+      return { fim: true, url: `${cfg.comfyUrl}/view?filename=${encodeURIComponent(alvo.filename)}&subfolder=${encodeURIComponent(alvo.subfolder || "")}&type=${alvo.type || "output"}`, ext: path.extname(alvo.filename).toLowerCase() };
+    },
+  };
+
   const semChaves = (msg, cfg = config()) => [cfg.artcraftKey, cfg.falKey].filter((k) => k && k.length > 6).reduce((t, k) => t.split(k).join("***"), String(msg));
 
   const trabalhos = new Map(); // `${proj}:${no}` → Promise
@@ -789,7 +922,7 @@ module.exports = function criarQuadro({
         if (!resp || !resp.ok) throw new Error(`não consegui baixar o resultado (${resp ? `HTTP ${resp.status}` : "sem conexão"}); o link ficou: ${r.url}`);
         const bytes = Buffer.from(await resp.arrayBuffer());
         const tipoHttp = resp.headers.get("content-type") || "";
-        let ext = path.extname(new URL(r.url).pathname).toLowerCase();
+        let ext = r.ext || path.extname(new URL(r.url).pathname).toLowerCase();
         if (!tipoPorExt(`x${ext}`)) ext = tipoHttp.includes("video") ? ".mp4" : tipoHttp.includes("png") ? ".png" : tipoHttp.includes("webp") ? ".webp" : ".jpg";
         const cena = doc.cenas.find((c) => c.id === no.cena);
         const base = `${cena ? cena.nome : "Cena"} - ${no.titulo || (no.saida === "video" ? "video" : "foto")} v${no.versoes.length + 1}`;
@@ -1472,10 +1605,11 @@ module.exports = function criarQuadro({
         const r = montarPrompt(doc, no);
         return json(res, 200, { ...r, arquivos: r.imagens.concat(r.videos).map((id) => caminhoMidia(doc, doc.midias[id])) });
       }
+      if (rota === "/api/comfy") return json(res, 200, await comfyEstado());
       if (rota === "/api/config") {
         const c = config();
         return json(res, 200, {
-          motor: c.motor, artcraft: !!c.artcraftKey, fal: !!c.falKey, modelos: MODELOS, pasta: RAIZ, versao: VERSAO,
+          motor: c.motor, comfyUrl: c.comfyUrl, comfy: fs.existsSync(arqReceita("imagem")) || fs.existsSync(arqReceita("video")), artcraft: !!c.artcraftKey, fal: !!c.falKey, modelos: MODELOS, pasta: RAIZ, versao: VERSAO,
           github: origemAtualizacao ? origemAtualizacao.ler() : null,
           proporcoes: ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9", "4:5", "auto"],
         });
@@ -1613,12 +1747,19 @@ module.exports = function criarQuadro({
       if (rota === "/api/filmcraft/colocar") return json(res, 200, await colocarNaTimeline(proj, corpo));
       if (rota === "/api/config") {
         const m = {};
-        if (corpo.motor !== undefined) m.motor = ["artcraft", "fal", "manual"].includes(corpo.motor) ? corpo.motor : undefined;
+        if (corpo.motor !== undefined) m.motor = ["artcraft", "fal", "comfy", "manual"].includes(corpo.motor) ? corpo.motor : undefined;
         if (corpo.artcraftKey !== undefined) m.artcraftKey = String(corpo.artcraftKey).trim();
         if (corpo.falKey !== undefined) m.falKey = String(corpo.falKey).trim();
+        if (corpo.comfyUrl !== undefined) { const u = String(corpo.comfyUrl).trim(); if (u && !/^http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?\/?$/i.test(u) && !/^https?:\/\/[\w.-]+(:\d+)?\/?$/i.test(u)) throw new Error("endereço do ComfyUI inválido (ex.: http://127.0.0.1:8188)"); m.comfyUrl = u || "http://127.0.0.1:8188"; }
         if (corpo.github !== undefined && origemAtualizacao) origemAtualizacao.gravar(corpo.github);
         salvarConfig(m);
         return json(res, 200, { ok: true });
+      }
+      if (rota === "/api/comfy/receita") {
+        const wf = validarReceita(typeof corpo.json === "string" ? JSON.parse(corpo.json) : corpo.json);
+        fs.mkdirSync(PASTA_COMFY, { recursive: true });
+        fs.writeFileSync(arqReceita(corpo.tipo), JSON.stringify(wf));
+        return json(res, 200, { ok: true, nos: Object.keys(wf).length });
       }
       if (rota === "/api/pacote") return json(res, 200, await prepararPacote(proj, corpo.no));
       if (rota === "/api/mostrar") {
