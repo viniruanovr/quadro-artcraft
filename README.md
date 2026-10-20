@@ -18,11 +18,11 @@ Um quadro de nós para criar filmes cena a cena com IA, ligado aos apps da suít
 **Servidor MCP direto do GitHub** (Claude Code ou qualquer cliente MCP, com Node 20+):
 
 ```bash
-claude mcp add artcraft -- npx -y github:OWNER/quadro-artcraft
+claude mcp add artcraft -- npx -y github:viniciusruano/quadro-artcraft
 ```
 
 ```json
-{ "mcpServers": { "artcraft": { "command": "npx", "args": ["-y", "github:OWNER/quadro-artcraft"] } } }
+{ "mcpServers": { "artcraft": { "command": "npx", "args": ["-y", "github:viniciusruano/quadro-artcraft"] } } }
 ```
 
 ## Ferramentas MCP
