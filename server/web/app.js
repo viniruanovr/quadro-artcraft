@@ -150,6 +150,11 @@ function htmlPrevia(m, no) {
       : "Sem arquivo";
     return `<div class="previa"><div class="vazia">${msg}</div>${soltar}</div>`;
   }
+  if (no.tipo === "midia" && no.fc && no.trecho && no.fc.src !== undefined) {
+    // clipe da timeline: toca o vídeo de verdade (o trecho do clipe), não um print
+    const poster = ` poster="${urlMini(m) || urlMidia(m)}"`;
+    return `<div class="previa"><video src="/api/filmcraft/arquivo?item=${no.fc.item}#t=${no.fc.src},${(no.fc.src + no.fc.dur).toFixed(2)}" controls muted loop playsinline preload="metadata"${poster}></video>${soltar}</div>`;
+  }
   if (m.tipo === "video") {
     const poster = est.minis.has(m.id) ? ` poster="/mini/${m.id}.jpg?${qp()}"` : "";
     return `<div class="previa" data-ver="${m.id}"><video src="${urlMidia(m)}" muted loop playsinline preload="metadata"${poster}></video>${soltar}</div>`;
@@ -637,12 +642,19 @@ $("#camada-nos").addEventListener("click", async (e) => {
 });
 
 async function copiarPrompt(no, manual) {
-  const r = await pegar(`/api/prompt?no=${no.id}`);
+  // modo manual: monta a pasta primeiro (o vídeo base só vira "vídeo 1" depois de exportado)
+  let pacote = null;
+  if (manual) {
+    aviso("Preparando o vídeo e as imagens numerados…", false, 6000);
+    try { pacote = await postar("/api/pacote", { no: no.id }); } catch (e) { aviso(`Não consegui montar a pasta: ${e.message}`, true, 12000); }
+  }
+  const r = pacote ? { prompt: pacote.prompt, arquivos: pacote.arquivos } : await pegar(`/api/prompt?no=${no.id}`);
   if (!r.prompt.trim()) { aviso("Escreva no fio (ou na instrução extra) o que gerar.", true); return false; }
   try { await navigator.clipboard.writeText(r.prompt); } catch { prompt("Copie o prompt:", r.prompt); }
   const refs = r.arquivos.length ? `\nReferências (na ordem): ${r.arquivos.map((a) => a.split(/[\\/]/).pop()).join(", ")}` : "";
-  aviso(`${manual ? "Prompt copiado e pasta das referências aberta. No ArtCraft: cole o prompt, anexe as referências, gere e baixe o resultado. Eu puxo o arquivo novo de Downloads sozinho." : "Prompt copiado."}${refs}`, false, 12000);
-  if (manual && r.imagens.length) postar("/api/mostrar", { midia: r.imagens[0] }).catch(() => {});
+  aviso(pacote
+    ? `Prompt copiado e pasta aberta (${pacote.arquivos.join(", ")}). No ArtCraft: cole o prompt, arraste esses arquivos, gere e baixe o resultado. Eu puxo o arquivo novo sozinho.`
+    : `${manual ? "Prompt copiado. No ArtCraft: cole, anexe as referências, gere e baixe o resultado. Eu puxo o arquivo novo sozinho." : "Prompt copiado."}${refs}`, false, 14000);
   return true;
 }
 

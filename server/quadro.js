@@ -703,6 +703,32 @@ module.exports = function criarQuadro({
     salvar(doc);
   }
 
+  // Modo manual: junta numa pasta o vídeo base (trecho exportado) e as imagens, com os mesmos
+  // números do prompt, e abre a pasta para a pessoa arrastar para o ArtCraft.
+  async function prepararPacote(proj, noId) {
+    const doc = carregar(proj);
+    const no = acharNo(doc, noId);
+    if (!no || no.tipo !== "gerar") throw new Error("nó Gerar não encontrado");
+    await prepararTrechos(doc, no);
+    const { prompt, imagens, videos } = montarPrompt(doc, no);
+    const pasta = path.join(pastaProjeto(doc.nome), "para-artcraft", no.id);
+    fs.rmSync(pasta, { recursive: true, force: true });
+    fs.mkdirSync(pasta, { recursive: true });
+    const arquivos = [];
+    const copiar = (id, rotulo, n) => {
+      const m = doc.midias[id];
+      const ext = path.extname(m.arquivo);
+      const nome = `${rotulo} ${n} - ${limparNome(path.basename(m.arquivo, ext)).slice(0, 40)}${ext}`;
+      fs.copyFileSync(caminhoMidia(doc, m), path.join(pasta, nome));
+      arquivos.push(nome);
+    };
+    videos.forEach((id, i) => copiar(id, "video", i + 1));
+    imagens.forEach((id, i) => copiar(id, "imagem", i + 1));
+    fs.writeFileSync(path.join(pasta, "prompt.txt"), prompt);
+    abrirNoSistema(pasta, false);
+    return { pasta, arquivos, prompt };
+  }
+
   const semChaves = (msg, cfg = config()) => [cfg.artcraftKey, cfg.falKey].filter((k) => k && k.length > 6).reduce((t, k) => t.split(k).join("***"), String(msg));
 
   const trabalhos = new Map(); // `${proj}:${no}` → Promise
@@ -972,6 +998,13 @@ module.exports = function criarQuadro({
     let c = acharCena(doc, nomeCena);
     if (!c) { aplicarOps(doc, [{ op: "cena", nome: nomeCena }]); c = doc.cenas[doc.cenas.length - 1]; }
     const ja = new Set(doc.nos.filter((n) => n.cena === c.id && n.fc).map((n) => n.fc.clip));
+    // nós que já vieram da timeline: atualiza onde o clipe começa no arquivo (para mostrar o vídeo real)
+    for (const n of doc.nos) {
+      const cl = n.fc && lista.find((x) => x.clip === n.fc.clip);
+      if (!cl) continue;
+      Object.assign(n.fc, { item: cl.item, ini: cl.ini, dur: cl.dur, src: cl.inSrc || 0 });
+      if (n.trecho === undefined && EXT_VIDEO.has(path.extname(arquivosFc.get(cl.item) || "").toLowerCase())) n.trecho = true;
+    }
     const novos = lista.filter((x) => !ja.has(x.clip));
     let x0 = Math.max(40, ...doc.nos.filter((n) => n.cena === c.id && n.fc).map((n) => n.x + 270));
     const criados = [];
@@ -989,7 +1022,7 @@ module.exports = function criarQuadro({
       const r = aplicarOps(doc, [{ op: "no", tipo: "midia", cena: c.id, midia: m.id, titulo: `${tc(cl.ini)} · ${cl.nome}`, ...pos }]);
       if (typeof x === "number") x += 270;
       const no = acharNo(doc, r.criados[0]);
-      no.fc = { clip: cl.clip, item: cl.item, ini: cl.ini, dur: cl.dur, faixa: `V${cl.faixa + 1}` };
+      no.fc = { clip: cl.clip, item: cl.item, ini: cl.ini, dur: cl.dur, src: cl.inSrc || 0, faixa: `V${cl.faixa + 1}` };
       if (EXT_VIDEO.has(path.extname(arq || "").toLowerCase())) no.trecho = true; // clipe de vídeo: vira vídeo base na geração
       criados.push(no.id);
       x0 += 270;
@@ -1587,6 +1620,7 @@ module.exports = function criarQuadro({
         salvarConfig(m);
         return json(res, 200, { ok: true });
       }
+      if (rota === "/api/pacote") return json(res, 200, await prepararPacote(proj, corpo.no));
       if (rota === "/api/mostrar") {
         const doc = carregar(proj);
         const m = doc.midias[corpo.midia];

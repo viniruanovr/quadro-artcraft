@@ -1,6 +1,6 @@
 {
-  "versao": "2.5.0",
+  "versao": "2.5.1",
   "arquivo": "quadro-bundle.js",
-  "sha256": "3b08aa011590822f20f087aff8c2bae8642052bbf7e58d8c768be31ebfa7c420",
-  "notas": "Ícone próprio e atalho na Área de Trabalho. Vídeo base (trecho da timeline) + PNGs numerados viram um vídeo novo, que volta sozinho para o nó. Números nos fios. Dezenas de correções: projeto não se perde ao salvar, desfazer não derruba geração em andamento, vigia de download mais seguro, proteção contra atualização ruim, atalhos e janela de configuração mais confiáveis."
+  "sha256": "ead3fd2066cc744c41d6918b38cf10e43c1bf13ced062959c3b2eaed772d1fe7",
+  "notas": "Clipes da timeline mostram o vídeo de verdade no nó (não um print). Modo manual: o botão Gerar monta uma pasta com o vídeo base e as imagens numerados, abre a pasta e copia o prompt."
 }
