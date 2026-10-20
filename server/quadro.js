@@ -975,9 +975,11 @@ def fazer(pedido):
         nome = os.path.basename(a["nome"])
         open(os.path.join(BASE, "input", nome), "wb").write(http(a["url"], t=300))
     pr = local("/prompt", json.dumps({"prompt": pedido["receita"], "client_id": "quadro-nuvem"}).encode())["prompt_id"]
-    t0 = time.time()
+    t0 = time.time(); batida = time.time()
     while time.time() - t0 < 40 * 60:
         time.sleep(5)
+        if time.time() - batida > 120:
+            avisar("estado", "pronta"); batida = time.time()  # gerando ainda conta como viva
         if comfy.poll() is not None: raise RuntimeError("o ComfyUI parou na nuvem")
         h = local("/history/" + pr).get(pr)
         if not h: continue
@@ -1154,7 +1156,11 @@ print("desligando por falta de uso")
       if (Date.now() - job.inicio > 3 * 60 * 1000 && Date.now() - (job.batida || 0) > 60000) {
         job.batida = Date.now();
         const g = await gpuEstado();
-        if (g.estado !== "pronta") { const e = new Error("a GPU na nuvem se desligou antes de terminar; clique em Gerar de novo"); e.fatal = true; throw e; }
+        if (g.estado !== "pronta") {
+          // gerando um vídeo longo a batida pode atrasar: só desiste se a sessão do Kaggle parou mesmo
+          const s = await kaggleSituacao(config()).catch(() => null);
+          if (s && !/RUNNING|QUEUED|NEW_SCRIPT/.test(s.status)) { const e = new Error("a GPU na nuvem se desligou antes de terminar; clique em Gerar de novo"); e.fatal = true; throw e; }
+        }
       }
       return { fim: false, progresso: 0 };
     },

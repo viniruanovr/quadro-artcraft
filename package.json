@@ -1,6 +1,6 @@
 {
   "name": "quadro-artcraft",
-  "version": "2.8.4",
+  "version": "2.8.5",
   "description": "Servidor MCP + Quadro de Cenas: liga o Claude aos apps ArtCraft (FilmCraft, EffectCraft, PhotoCraft...) e a um quadro de nós para gerar e montar cena a cena.",
   "license": "MIT",
   "author": "Vinícius Ruano",

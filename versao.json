@@ -1,6 +1,6 @@
 {
-  "versao": "2.8.4",
+  "versao": "2.8.5",
   "arquivo": "quadro-bundle.js",
-  "sha256": "1c308ebd1d71e6d954255e5200f09e87b7e53ab4b38c7c2ee399a6dd088a27cf",
-  "notas": "Kaggle: corrige 'token recusado' na primeira vez (código quadro-gpu ainda não existe)"
+  "sha256": "aa429f8f1bd2f9cb6583956bc51bcfc2f8a000252b3a6dd084b69ebbddc80dd8",
+  "notas": "Kaggle: não desiste no meio de um vídeo longo (a GPU continua viva enquanto gera)"
 }
