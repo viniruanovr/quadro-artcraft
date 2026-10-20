@@ -1,6 +1,6 @@
 {
-  "versao": "2.8.2",
+  "versao": "2.8.3",
   "arquivo": "quadro-bundle.js",
-  "sha256": "490c2fca8c51fecf5f9b52d5336a9d9914dc42d0e2b94c0c0c0ff87990dfcf0a",
-  "notas": "Ao gerar vídeo sem conta ligada, o quadro pede o usuário e o token do Kaggle numa janelinha"
+  "sha256": "78022cd0595782358e3fcd53cc31b8608a6d6c0cf45665777372a1e0c23ce18a",
+  "notas": "Atualiza sozinho em 20 s quando nada está gerando"
 }

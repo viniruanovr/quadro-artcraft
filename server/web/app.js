@@ -1558,12 +1558,27 @@ async function conferirAtualizacao() {
     btn.textContent = r.podeReiniciar ? "Reiniciar e atualizar" : "Entra quando reiniciar o Claude";
     btn.disabled = !r.podeReiniciar;
     b.hidden = false;
+    if (r.podeReiniciar) agendarAtualizacao();
   } catch {}
 }
 $("#atualizacao .mini").addEventListener("click", () => {
   atualizacaoVista = $("#atualizacao span").textContent.replace(/^Versão (\S+).*/, "$1");
   $("#atualizacao").hidden = true;
+  clearInterval(autoAtualizar); autoAtualizar = null;
 });
+// Atualiza sozinho: quando há versão pronta e nada está gerando, conta 20 s e reinicia (o × cancela).
+let autoAtualizar = null;
+function agendarAtualizacao() {
+  if (autoAtualizar) return;
+  let resta = 20;
+  const btn = $("#atualizacao .btn");
+  autoAtualizar = setInterval(() => {
+    if (btn.disabled || $("#atualizacao").hidden) { clearInterval(autoAtualizar); autoAtualizar = null; return; }
+    if (est.doc && est.doc.nos.some((n) => n.estado === "gerando")) { resta = 20; btn.textContent = "Reiniciar e atualizar"; return; }
+    if (--resta <= 0) { clearInterval(autoAtualizar); btn.click(); return; }
+    btn.textContent = `Atualizando em ${resta} s (clique para já)`;
+  }, 1000);
+}
 $("#atualizacao .btn").addEventListener("click", async (e) => {
   e.target.disabled = true;
   e.target.textContent = "Reiniciando…";
