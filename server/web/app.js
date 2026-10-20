@@ -1540,7 +1540,7 @@ function conectarEventos() {
     if (lerLocal("linha") === "1") alternarLinha(true);
     if (lerLocal("guia") !== "0") alternarGuia(true);
     conferirAtualizacao();
-    setInterval(conferirAtualizacao, 10 * 60 * 1000);
+    setInterval(conferirAtualizacao, 2 * 60 * 1000);
     await carregarDoc();
     conectarEventos();
     document.title = `${est.doc.nome} · Quadro de Cenas`;
@@ -1581,7 +1581,7 @@ const MENUS = {
   "Janela": [
     ["Tela cheia", "F11", () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen()).catch(() => {})],
     ["Recarregar o quadro", "", () => location.reload()],
-    ["Procurar atualização", "", () => { atualizacaoVista = ""; conferirAtualizacao().then(() => { if ($("#atualizacao").hidden) aviso(`Você já está na versão mais recente (${est.cfg.versao}).`); }); }],
+    ["Procurar atualização", "", async () => { aviso("Procurando atualização…"); try { await postar("/api/atualizacao/verificar"); } catch {} atualizacaoVista = ""; await conferirAtualizacao(); if ($("#atualizacao").hidden) aviso(`Você já está na versão mais recente (${est.cfg.versao}).`); }],
   ],
   "Atalhos": [
     ["Ver todos os atalhos", "?", () => alternarGuia()],

@@ -68,7 +68,7 @@ const PROPORCAO_ARTCRAFT = {
 
 module.exports = function criarQuadro({
   DADOS, log, VERSAO, prepararApp, sessao, appAberto = async () => false, appRodando = async () => null,
-  atualizacao = () => null, controlePermanente = null, origemAtualizacao = null, abrirApp = null, pastaDoApp = () => null,
+  atualizacao = () => null, verificarAgora = null, controlePermanente = null, origemAtualizacao = null, abrirApp = null, pastaDoApp = () => null,
 }) {
   let reiniciar = null;
   const ARQ_CONFIG = path.join(DADOS, "quadro-config.json");
@@ -1734,6 +1734,10 @@ module.exports = function criarQuadro({
         const t = ((r.content || [])[0] || {}).text || "";
         if (r.isError) throw new Error(t);
         return json(res, 200, { texto: t });
+      }
+      if (rota === "/api/atualizacao/verificar") {
+        if (verificarAgora) await verificarAgora().catch(() => {});
+        return json(res, 200, { versao: VERSAO, pronta: atualizacao(), podeReiniciar: !!reiniciar });
       }
       if (rota === "/api/reiniciar") {
         if (!reiniciar) throw new Error("reinicie o Claude Desktop para usar a versão nova");

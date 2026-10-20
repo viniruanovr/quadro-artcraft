@@ -119,11 +119,11 @@ async function verificar(versaoAtual, log = () => {}) {
   return ultima;
 }
 
-// Confere agora e a cada 6 horas, sem atrapalhar nada se a internet falhar.
+// Confere agora e a cada 20 minutos, sem atrapalhar nada se a internet falhar.
 function acompanhar(versaoAtual, log = () => {}) {
   const rodar = () => verificar(versaoAtual, log).catch((e) => log(`atualização: ${e.message}`));
   setTimeout(rodar, 5000).unref();
-  setInterval(rodar, 6 * 3600 * 1000).unref();
+  setInterval(rodar, 20 * 60 * 1000).unref();
 }
 
 module.exports = { marcarBom, PASTA, urlBase, lerOrigem, gravarOrigem, maisNova, pacoteMaisNovo, verificar, acompanhar, pronta: () => ultima };

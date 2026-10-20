@@ -1,6 +1,6 @@
 {
-  "versao": "2.7.0",
+  "versao": "2.7.1",
   "arquivo": "quadro-bundle.js",
-  "sha256": "658803328192cbdae0dccf6d195dc533461c5f45d7e2084901a9338c4ec2f417",
-  "notas": "Barra de menus no topo: Arquivo, Editar, Exibir, Janela, Atalhos e Configurações"
+  "sha256": "0a5fdc2ed416e4bad51658d5ad846dcad134c83569d1f5c81bd25ee12c3ae010",
+  "notas": "Menu Janela > Procurar atualização funciona na hora; confere a cada 20 min"
 }

@@ -15,7 +15,7 @@ const net = require("node:net");
 const os = require("node:os");
 const path = require("node:path");
 
-const VERSAO = "2.7.0";
+const VERSAO = "2.7.1";
 const WINDOWS = process.platform === "win32";
 const atualizar = require("./atualizar");
 
@@ -633,7 +633,7 @@ async function prepararApp(id) {
 
 const quadro = require("./quadro")({
   DADOS, log, VERSAO, prepararApp, sessao, appAberto: (id) => portaAberta(APPS[id].porta),
-  atualizacao: () => atualizar.pronta(), controlePermanente,
+  atualizacao: () => atualizar.pronta(), verificarAgora: () => atualizar.verificar(VERSAO, log), controlePermanente,
   origemAtualizacao: { ler: atualizar.lerOrigem, gravar: (u) => { const r = atualizar.gravarOrigem(u); atualizar.verificar(VERSAO, log).catch((e) => log(`atualização: ${e.message}`)); return r; } }, appRodando: async (id) => { const p = await processosAbertos(); return p ? p.has(id) : null; },
   abrirApp: (id, arquivo) => abrir({ app: id, arquivo }), pastaDoApp: (id) => (localizar(id) || {}).pasta,
 });
