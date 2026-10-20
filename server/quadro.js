@@ -797,7 +797,7 @@ module.exports = function criarQuadro({
 
   async function comfyPedir(cfg, rota, opts = {}) {
     const r = await fetch(`${cfg.comfyUrl}${rota}`, { signal: AbortSignal.timeout(opts.timeout || 20000), ...opts }).catch((e) => {
-      throw new Error(`não consegui falar com o ComfyUI em ${cfg.comfyUrl} (${e.cause && e.cause.code ? e.cause.code : e.message}). Abra o ComfyUI e deixe-o rodando`);
+      throw new Error(`não consegui falar com o ComfyUI em ${cfg.comfyUrl} (${e.cause && e.cause.code ? e.cause.code : e.message}). Abra o ComfyUI e deixe-o rodando, ou em ⚙ escolha "Nuvem grátis: Kaggle"`);
     });
     return r;
   }
@@ -1029,14 +1029,14 @@ print("desligando por falta de uso")
   }
 
   async function kagglePedir(cfg, metodo, corpo) {
-    if (!cfg.kaggleUser || !cfg.kaggleKey) throw new Error("falta ligar sua conta do Kaggle: em ⚙ escolha o arquivo kaggle.json (Kaggle › Settings › API › Create New Token)");
+    if (!cfg.kaggleUser || !cfg.kaggleKey) throw new Error("falta ligar sua conta do Kaggle: em ⚙ › Nuvem grátis, cole seu usuário e o token do Kaggle (kaggle.com › Settings › API)");
     const auth = /^KGAT_/.test(cfg.kaggleKey) ? `Bearer ${cfg.kaggleKey}` : `Basic ${Buffer.from(`${cfg.kaggleUser}:${cfg.kaggleKey}`).toString("base64")}`;
     const r = await fetch(KAGGLE_API + metodo, {
       method: "POST", headers: { "Content-Type": "application/json", Authorization: auth, "User-Agent": "kaggle-api/v1.7.0" },
       body: JSON.stringify(corpo), signal: AbortSignal.timeout(60000),
     }).catch((e) => { throw new Error(`não consegui falar com o Kaggle (${e.cause && e.cause.code ? e.cause.code : e.message})`); });
     const j = await r.json().catch(() => ({}));
-    if (r.status === 401 || r.status === 403) throw new Error("o Kaggle recusou a chave: em ⚙ escolha de novo o kaggle.json");
+    if (r.status === 401 || r.status === 403) throw new Error("o Kaggle recusou o token: confira em ⚙ o usuário e o token (ou gere um token novo em kaggle.com › Settings › API)");
     if (!r.ok || (j.code && j.code >= 400)) { const e = new Error(`Kaggle: ${j.message || j.error || `HTTP ${r.status}`}`); e.status = r.status || j.code; throw e; }
     if (j.error) throw new Error(`Kaggle: ${j.error}`);
     return j;
@@ -2070,7 +2070,7 @@ print("desligando por falta de uso")
           let k = corpo.kaggle;
           if (typeof k === "string") { try { k = JSON.parse(k); } catch { throw new Error("esse arquivo não é o kaggle.json"); } }
           const user = String((k && k.username) || "").trim(), key = String((k && k.key) || "").trim();
-          if (!/^[\w-]{2,}$/.test(user) || key.length < 10) throw new Error("esse arquivo não é o kaggle.json (precisa ter username e key)");
+          if (!/^[\w-]{2,}$/.test(user) || key.length < 10) throw new Error("usuário ou token do Kaggle inválido");
           m.kaggleUser = user; m.kaggleKey = key;
           if (corpo.motor === undefined) m.motor = "kaggle";
         }

@@ -1,6 +1,6 @@
 {
-  "versao": "2.8.0",
+  "versao": "2.8.1",
   "arquivo": "quadro-bundle.js",
-  "sha256": "9e6f23bf50ce261d29b4b010ce3e0b8998a62da32f641f34abec108341be16bc",
-  "notas": "Vídeo grátis automático: o quadro liga sozinho uma GPU no seu Kaggle (⚙ › Nuvem grátis). Barra de menus, 11 correções."
+  "sha256": "08497f90f4fdf50e6f7e0ff573fb44463a336e011dabcb2b351a4eef079f2fe2",
+  "notas": "Kaggle: aceita o token novo (KGAT_) colado em ⚙, com seu usuário"
 }

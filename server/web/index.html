@@ -135,9 +135,11 @@
       </select>
     </label>
     <div class="cfg-sec" data-para="kaggle">
-      <label>Conta do Kaggle <input type="file" id="kaggle-json" accept=".json,application/json"></label>
+      <label>Seu usuário do Kaggle <input name="kaggleUser" autocomplete="off" placeholder="ex.: viniciusruano"></label>
+      <label>Token do Kaggle <input name="kaggleToken" type="password" autocomplete="off" placeholder="KGAT_…"></label>
+      <label>ou o arquivo kaggle.json <input type="file" id="kaggle-json" accept=".json,application/json"></label>
       <p class="dica" id="cfg-kaggle-estado">…</p>
-      <p class="dica">Uma vez só: entre em <b>kaggle.com</b>, verifique o telefone da conta (Settings › Phone verification), depois em <b>Settings › API › Create New Token</b>. Baixa um arquivo <code>kaggle.json</code>: escolha ele aqui. Pronto: ao clicar em Gerar, o quadro liga uma GPU grátis no seu Kaggle (a primeira geração do dia leva uns 10 minutos para ligar) e desliga sozinho após 25 minutos sem uso.</p>
+      <p class="dica">Uma vez só: entre em <b>kaggle.com</b>, verifique o telefone da conta (Settings › Phone verification), depois em <b>Settings › API</b> gere um token. Cole aqui o token (começa com KGAT_) e o seu usuário (aparece no endereço do seu perfil: kaggle.com/<b>usuário</b>). Se baixou um arquivo <code>kaggle.json</code>, pode escolher ele em vez disso. Pronto: ao clicar em Gerar, o quadro liga uma GPU grátis no seu Kaggle (a primeira geração do dia leva uns 10 minutos para ligar) e desliga sozinho após 25 minutos sem uso.</p>
     </div>
     <div class="cfg-sec" data-para="artcraft">
       <label>Chave da API ArtCraft <input name="artcraftKey" type="password" autocomplete="off" placeholder="artcraft_api_…"></label>

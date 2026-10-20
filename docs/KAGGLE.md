@@ -5,8 +5,8 @@ O Kaggle empresta uma placa de vídeo de 16 GB, de graça, por cerca de 30 horas
 ## Uma vez só
 
 1. Entre em **kaggle.com** com sua conta e verifique o telefone (Settings › Phone verification). O Kaggle exige isso para usar GPU com internet.
-2. Ainda em **Settings**, na parte **API**, clique em **Create New Token**. Baixa um arquivo `kaggle.json`.
-3. No quadro: **⚙** › Gerar com: **Nuvem grátis: Kaggle** › em **Conta do Kaggle** escolha o `kaggle.json` › Salvar.
+2. Ainda em **Settings**, na parte **API**, gere um token (começa com `KGAT_`) e copie.
+3. No quadro: **⚙** › Gerar com: **Nuvem grátis: Kaggle** › cole seu usuário do Kaggle e o token › Salvar. (Se tiver um `kaggle.json`, pode escolher o arquivo no lugar.)
 
 ## Usar
 

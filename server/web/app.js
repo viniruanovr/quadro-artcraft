@@ -998,6 +998,9 @@ $("#motor").addEventListener("click", () => {
   f.artcraftKey.value = "";
   f.falKey.value = "";
   f.comfyUrl.value = est.cfg.comfyUrl || "";
+  f.kaggleUser.value = est.cfg.kaggle || "";
+  f.kaggleToken.value = "";
+  f.kaggleToken.placeholder = est.cfg.kaggle ? "•••••• (configurado)" : "KGAT_…";
   mostrarSecoes();
   verificarComfy();
   verificarKaggle();
@@ -1020,7 +1023,7 @@ async function verificarKaggle() {
   e.textContent = "Verificando o Kaggle…";
   try {
     const k = await pegar("/api/kaggle");
-    e.textContent = !k.conta ? "Conta do Kaggle ainda não ligada: escolha o kaggle.json acima." : `Conta ligada: ${k.usuario}. GPU na nuvem ${k.ligada ? "ligada agora" : k.ligando ? "ligando…" : "desligada (liga sozinha ao gerar)"}.`;
+    e.textContent = !k.conta ? "Conta do Kaggle ainda não ligada: cole o usuário e o token acima e clique em Salvar." : `Conta ligada: ${k.usuario}. GPU na nuvem ${k.ligada ? "ligada agora" : k.ligando ? "ligando…" : "desligada (liga sozinha ao gerar)"}.`;
   } catch (err) { e.textContent = err.message; }
 }
 $("#kaggle-json").addEventListener("change", async (ev) => {
@@ -1076,6 +1079,11 @@ $("#dlg-config").addEventListener("close", async () => {
   if (f.falKey.value.trim()) corpo.falKey = f.falKey.value.trim();
   if (f.comfyUrl.value.trim() !== (est.cfg.comfyUrl || "")) corpo.comfyUrl = f.comfyUrl.value.trim();
   if (!f.github.disabled && f.github.value.trim() !== (est.cfg.github || "")) corpo.github = f.github.value.trim();
+  const kTok = f.kaggleToken.value.trim(), kUser = f.kaggleUser.value.trim().replace(/^@/, "").replace(/^.*kaggle\.com\//i, "").replace(/\/.*$/, "");
+  if (kTok || (kUser && kUser !== est.cfg.kaggle)) {
+    if (!kTok || !kUser) return aviso("Para ligar o Kaggle preencha o usuário e o token.", true, 8000);
+    corpo.kaggle = { username: kUser, key: kTok };
+  }
   try { await postar("/api/config", corpo); } catch (err) { return aviso(err.message, true); }
   est.cfg = await pegar("/api/config");
   if (corpo.github) setTimeout(conferirAtualizacao, 8000);
