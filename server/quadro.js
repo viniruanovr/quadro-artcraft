@@ -517,7 +517,7 @@ module.exports = function criarQuadro({
       const m = midiaDoNo(doc, de);
       const nome = de.titulo || (m ? path.basename(m.arquivo, path.extname(m.arquivo)) : de.id);
       if (m && m.tipo === "imagem") { imagens.push(m.id); rotulos.push(`imagem ${imagens.length} = ${nome}`); }
-      else if (m && m.tipo === "video") { videos.push(m.id); rotulos.push(`vídeo ${videos.length} (vídeo base: movimento e câmera) = ${nome}`); }
+      else if (m && m.tipo === "video") { videos.push(m.id); rotulos.push(videos.length === 1 ? `vídeo 1 (vídeo base: movimento e câmera) = ${nome}` : `vídeo ${videos.length} (referência) = ${nome}`); }
       if (de.tipo === "nota" && de.texto) instrucoes.push(de.texto.trim());
       if (l.texto && l.texto.trim()) instrucoes.push(l.texto.trim());
     }

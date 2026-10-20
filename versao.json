@@ -1,6 +1,6 @@
 {
-  "versao": "2.5.1",
+  "versao": "2.5.2",
   "arquivo": "quadro-bundle.js",
-  "sha256": "ead3fd2066cc744c41d6918b38cf10e43c1bf13ced062959c3b2eaed772d1fe7",
-  "notas": "Clipes da timeline mostram o vídeo de verdade no nó (não um print). Modo manual: o botão Gerar monta uma pasta com o vídeo base e as imagens numerados, abre a pasta e copia o prompt."
+  "sha256": "e2d97bd596463f0e05f59a65dcbc1cd459cdcfc54d2d489be25fe18eb8e5482b",
+  "notas": "Só o primeiro vídeo é o vídeo base; os outros entram como referência."
 }
