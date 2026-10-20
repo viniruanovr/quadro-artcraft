@@ -1036,7 +1036,7 @@ print("desligando por falta de uso")
       body: JSON.stringify(corpo), signal: AbortSignal.timeout(60000),
     }).catch((e) => { throw new Error(`não consegui falar com o Kaggle (${e.cause && e.cause.code ? e.cause.code : e.message})`); });
     const j = await r.json().catch(() => ({}));
-    if (r.status === 401 || r.status === 403) throw new Error("o Kaggle recusou o token: confira em ⚙ o usuário e o token (ou gere um token novo em kaggle.com › Settings › API)");
+    if (r.status === 401 || (r.status === 403 && metodo === "SaveKernel")) { const e = new Error("o Kaggle recusou o token: confira em ⚙ o usuário e o token (ou gere um token novo em kaggle.com › Settings › API)"); e.status = r.status; throw e; }
     if (!r.ok || (j.code && j.code >= 400)) { const e = new Error(`Kaggle: ${j.message || j.error || `HTTP ${r.status}`}`); e.status = r.status || j.code; throw e; }
     if (j.error) throw new Error(`Kaggle: ${j.error}`);
     return j;
@@ -1047,7 +1047,7 @@ print("desligando por falta de uso")
       const j = await kagglePedir(cfg, "GetKernelSessionStatus", { userName: cfg.kaggleUser, kernelSlug: SLUG_KAGGLE });
       return { status: String(j.status || "QUEUED"), falha: j.failureMessage || "" };
     } catch (e) {
-      if (e.status === 404) return { status: "NENHUMA", falha: "" };
+      if (e.status === 404 || e.status === 403) return { status: "NENHUMA", falha: "" }; // na 1ª vez o Kaggle responde 403 para um código que ainda não existe
       throw e;
     }
   }

@@ -1,6 +1,6 @@
 {
-  "versao": "2.8.3",
+  "versao": "2.8.4",
   "arquivo": "quadro-bundle.js",
-  "sha256": "78022cd0595782358e3fcd53cc31b8608a6d6c0cf45665777372a1e0c23ce18a",
-  "notas": "Atualiza sozinho em 20 s quando nada está gerando"
+  "sha256": "1c308ebd1d71e6d954255e5200f09e87b7e53ab4b38c7c2ee399a6dd088a27cf",
+  "notas": "Kaggle: corrige 'token recusado' na primeira vez (código quadro-gpu ainda não existe)"
 }
